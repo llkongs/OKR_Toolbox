@@ -148,6 +148,13 @@ function App() {
   >([])
   const [backlogOptions, setBacklogOptions] = useState<Array<{ value: string; label: string }>>([])
   const [selectedBacklogId, setSelectedBacklogId] = useState<string>()
+  const [bankLoading, setBankLoading] = useState(false)
+  const [bankError, setBankError] = useState<string | null>(null)
+  const [bankKrs, setBankKrs] = useState<Array<{ value: string; label: string }>>([])
+  const [bankSelectedKr, setBankSelectedKr] = useState<string>('all')
+  const [bankActions, setBankActions] = useState<
+    Array<{ id: string; title: string; minutes?: number; planDate?: number; krId?: string; krTitle?: string }>
+  >([])
 
   const runSeed = async (ctx: { step: (line: string) => Promise<void> }) => {
     const { step } = ctx
@@ -431,6 +438,69 @@ function App() {
     }
   }, [activeTab])
 
+  const loadBankData = async () => {
+    if (!isBitable) {
+      setBankError('当前为本地预览环境，请在飞书多维表格插件中使用。')
+      return
+    }
+    setBankLoading(true)
+    setBankError(null)
+    try {
+      const actionTable = await getTableByName('Actions')
+      const krTable = await getTableByName('KeyResults')
+      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
+      const krFields = buildFieldIndex(await krTable.getFieldMetaList())
+
+      const actionRecords = await actionTable.getRecords({ pageSize: 5000 })
+      const krRecords = await krTable.getRecords({ pageSize: 5000 })
+
+      const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
+      const krMap = new Map<string, string>()
+      const krOptions: Array<{ value: string; label: string }> = [{ value: 'all', label: '全部 KR' }]
+      krRecords.records.forEach((record) => {
+        const title = record.fields[krTitleId] as string | undefined
+        if (!title) return
+        krMap.set(record.recordId, title)
+        krOptions.push({ value: record.recordId, label: title })
+      })
+      setBankKrs(krOptions)
+
+      const statusFieldId = resolveFieldId(actionFields.byName.get('Status')!)
+      const titleFieldId = resolveFieldId(actionFields.byName.get('Action_Title')!)
+      const minutesFieldId = resolveFieldId(actionFields.byName.get('Est_Minutes')!)
+      const planDateFieldId = resolveFieldId(actionFields.byName.get('Plan_Date')!)
+      const krLinkFieldId = resolveFieldId(actionFields.byName.get('KeyResult')!)
+
+      const items: Array<{ id: string; title: string; minutes?: number; planDate?: number; krId?: string; krTitle?: string }> = []
+
+      actionRecords.records.forEach((record) => {
+        const statusValue = record.fields[statusFieldId]
+        const statusLabel = resolveSelectLabel(statusValue, 'Status', actionFields.optionIdMap)
+        if (statusLabel !== 'Backlog') return
+        const title = (record.fields[titleFieldId] as string) || '未命名 Action'
+        const minutes = record.fields[minutesFieldId] as number | undefined
+        const planDate = record.fields[planDateFieldId] as number | undefined
+        const krLinks = record.fields[krLinkFieldId] as string[] | undefined
+        const krId = krLinks && krLinks.length > 0 ? krLinks[0] : undefined
+        const krTitle = krId ? krMap.get(krId) : undefined
+        items.push({ id: record.recordId, title, minutes, planDate, krId, krTitle })
+      })
+
+      setBankActions(items)
+    } catch (err) {
+      console.error(err)
+      setBankError(`加载失败：${String(err)}`)
+    } finally {
+      setBankLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'bank') {
+      void loadBankData()
+    }
+  }, [activeTab])
+
   const updateActionStatus = async (recordId: string, status: 'Today' | 'Backlog' | 'Done') => {
     const actionTable = await getTableByName('Actions')
     if (!actionTable.setRecord) {
@@ -616,9 +686,61 @@ function App() {
       key: 'bank',
       label: 'Action Bank',
       children: (
-        <Card>
-          <Text>按 KR 过滤动作库，快速“拉取到 Today”。</Text>
-        </Card>
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {bankError && <Alert type="error" showIcon message={bankError} />}
+          <Card>
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Space wrap>
+                <Button onClick={loadBankData} loading={bankLoading}>
+                  刷新
+                </Button>
+                <Select
+                  value={bankSelectedKr}
+                  onChange={setBankSelectedKr}
+                  options={bankKrs}
+                  style={{ minWidth: 220 }}
+                />
+              </Space>
+            </Space>
+          </Card>
+          <Card title={`Backlog 动作（${bankActions.length}）`} loading={bankLoading}>
+            <List
+              dataSource={bankActions.filter((item) => bankSelectedKr === 'all' || item.krId === bankSelectedKr)}
+              locale={{ emptyText: '暂无 Backlog 动作' }}
+              renderItem={(item) => (
+                <List.Item
+                  actions={[
+                    <Button
+                      key="pull"
+                      type="link"
+                      onClick={async () => {
+                        try {
+                          await updateActionStatus(item.id, 'Today')
+                          message.success('已拉取到 Today')
+                          await loadBankData()
+                        } catch (err) {
+                          console.error(err)
+                          message.error(`操作失败：${String(err)}`)
+                        }
+                      }}
+                    >
+                      拉取到 Today
+                    </Button>,
+                  ]}
+                >
+                  <Space direction="vertical">
+                    <Text strong>{item.title}</Text>
+                    <Space wrap>
+                      {item.krTitle && <Tag color="blue">{item.krTitle}</Tag>}
+                      {item.minutes && <Tag>预计 {item.minutes} 分钟</Tag>}
+                      {item.planDate && <Tag>计划 {new Date(item.planDate).toLocaleDateString('zh-CN')}</Tag>}
+                    </Space>
+                  </Space>
+                </List.Item>
+              )}
+            />
+          </Card>
+        </Space>
       ),
     },
     {
