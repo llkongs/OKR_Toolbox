@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { bitable } from '@lark-base-open/js-sdk'
-import { Alert, Button, Card, Divider, List, Space, Tabs, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Divider, List, Select, Space, Tabs, Tag, Typography, message } from 'antd'
 import OperationRunner from './components/OperationRunner'
 import './App.css'
 
@@ -27,6 +27,7 @@ type TableApi = {
   getFieldMetaList: () => Promise<FieldMeta[]>
   getRecords: (params?: { pageSize?: number }) => Promise<{ records: Array<{ recordId: string; fields: Record<string, unknown> }> }>
   addRecord: (payload: { fields: Record<string, unknown> }) => Promise<string>
+  setRecord?: (recordId: string, payload: { fields: Record<string, unknown> }) => Promise<unknown>
 }
 
 function resolveTableId(meta: TableMeta) {
@@ -54,6 +55,7 @@ async function getTableByName(name: string) {
 function buildFieldIndex(fields: FieldMeta[]) {
   const byName = new Map<string, FieldMeta>()
   const optionMap = new Map<string, Map<string, string>>()
+  const optionIdMap = new Map<string, Map<string, string>>()
   let primaryFieldId = ''
 
   fields.forEach((field) => {
@@ -67,16 +69,19 @@ function buildFieldIndex(fields: FieldMeta[]) {
     const options = field.property?.options
     if (name && options && options.length > 0) {
       const optMap = new Map<string, string>()
+      const idMap = new Map<string, string>()
       options.forEach((opt) => {
         if (opt.name && opt.id) {
           optMap.set(opt.name, opt.id)
+          idMap.set(opt.id, opt.name)
         }
       })
       optionMap.set(name, optMap)
+      optionIdMap.set(name, idMap)
     }
   })
 
-  return { byName, optionMap, primaryFieldId }
+  return { byName, optionMap, optionIdMap, primaryFieldId }
 }
 
 function selectValue(fieldName: string, label: string, optionMap: Map<string, Map<string, string>>) {
@@ -89,6 +94,28 @@ function selectValue(fieldName: string, label: string, optionMap: Map<string, Ma
     return label
   }
   return { id: optionId }
+}
+
+function resolveSelectLabel(
+  value: unknown,
+  fieldName: string,
+  optionIdMap: Map<string, Map<string, string>>
+) {
+  if (!value) {
+    return ''
+  }
+  if (typeof value === 'string') {
+    return value
+  }
+  if (typeof value === 'object' && value !== null) {
+    const id = (value as { id?: string }).id
+    if (!id) {
+      return ''
+    }
+    const map = optionIdMap.get(fieldName)
+    return map?.get(id) ?? id
+  }
+  return ''
 }
 
 function App() {
@@ -108,6 +135,19 @@ function App() {
   >([])
   const [driftKrsCount, setDriftKrsCount] = useState(0)
   const [unalignedActions, setUnalignedActions] = useState(0)
+  const [todayLoading, setTodayLoading] = useState(false)
+  const [todayError, setTodayError] = useState<string | null>(null)
+  const [todayList, setTodayList] = useState<
+    Array<{
+      id: string
+      title: string
+      minutes?: number
+      planDate?: number
+      krTitle?: string
+    }>
+  >([])
+  const [backlogOptions, setBacklogOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [selectedBacklogId, setSelectedBacklogId] = useState<string>()
 
   const runSeed = async (ctx: { step: (line: string) => Promise<void> }) => {
     const { step } = ctx
@@ -324,6 +364,84 @@ function App() {
     }
   }, [activeTab])
 
+  const loadTodayData = async () => {
+    if (!isBitable) {
+      setTodayError('当前为本地预览环境，请在飞书多维表格插件中使用。')
+      return
+    }
+    setTodayLoading(true)
+    setTodayError(null)
+    try {
+      const actionTable = await getTableByName('Actions')
+      const krTable = await getTableByName('KeyResults')
+      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
+      const krFields = buildFieldIndex(await krTable.getFieldMetaList())
+
+      const actionRecords = await actionTable.getRecords({ pageSize: 5000 })
+      const krRecords = await krTable.getRecords({ pageSize: 5000 })
+
+      const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
+      const krMap = new Map<string, string>()
+      krRecords.records.forEach((record) => {
+        const title = record.fields[krTitleId] as string | undefined
+        if (title) {
+          krMap.set(record.recordId, title)
+        }
+      })
+
+      const statusFieldId = resolveFieldId(actionFields.byName.get('Status')!)
+      const titleFieldId = resolveFieldId(actionFields.byName.get('Action_Title')!)
+      const minutesFieldId = resolveFieldId(actionFields.byName.get('Est_Minutes')!)
+      const planDateFieldId = resolveFieldId(actionFields.byName.get('Plan_Date')!)
+      const krLinkFieldId = resolveFieldId(actionFields.byName.get('KeyResult')!)
+
+      const todayItems: Array<{ id: string; title: string; minutes?: number; planDate?: number; krTitle?: string }> = []
+      const backlogItems: Array<{ value: string; label: string }> = []
+
+      actionRecords.records.forEach((record) => {
+        const statusValue = record.fields[statusFieldId]
+        const statusLabel = resolveSelectLabel(statusValue, 'Status', actionFields.optionIdMap)
+        const title = (record.fields[titleFieldId] as string) || '未命名 Action'
+        const minutes = record.fields[minutesFieldId] as number | undefined
+        const planDate = record.fields[planDateFieldId] as number | undefined
+        const krLinks = record.fields[krLinkFieldId] as string[] | undefined
+        const krTitle = krLinks && krLinks.length > 0 ? krMap.get(krLinks[0]) : undefined
+
+        if (statusLabel === 'Today') {
+          todayItems.push({ id: record.recordId, title, minutes, planDate, krTitle })
+        }
+        if (statusLabel === 'Backlog') {
+          backlogItems.push({ value: record.recordId, label: title })
+        }
+      })
+
+      setTodayList(todayItems)
+      setBacklogOptions(backlogItems)
+    } catch (err) {
+      console.error(err)
+      setTodayError(`加载失败：${String(err)}`)
+    } finally {
+      setTodayLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'today') {
+      void loadTodayData()
+    }
+  }, [activeTab])
+
+  const updateActionStatus = async (recordId: string, status: 'Today' | 'Backlog' | 'Done') => {
+    const actionTable = await getTableByName('Actions')
+    if (!actionTable.setRecord) {
+      throw new Error('当前环境不支持更新记录')
+    }
+    const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
+    const statusFieldId = resolveFieldId(actionFields.byName.get('Status')!)
+    const statusValue = selectValue('Status', status, actionFields.optionMap)
+    await actionTable.setRecord(recordId, { fields: { [statusFieldId]: statusValue } })
+  }
+
   const tabs = [
     {
       key: 'demo',
@@ -400,9 +518,98 @@ function App() {
       key: 'today',
       label: 'Today',
       children: (
-        <Card>
-          <Text>从 Action Bank 拉取 1-2 个 MIT，并展示今日任务列表。</Text>
-        </Card>
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {todayError && <Alert type="error" showIcon message={todayError} />}
+          <Card>
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Space wrap>
+                <Button onClick={loadTodayData} loading={todayLoading}>
+                  刷新
+                </Button>
+              </Space>
+              <Space wrap>
+                <Select
+                  placeholder="从 Backlog 选择 Action"
+                  style={{ minWidth: 260 }}
+                  options={backlogOptions}
+                  value={selectedBacklogId}
+                  onChange={setSelectedBacklogId}
+                />
+                <Button
+                  type="primary"
+                  disabled={!selectedBacklogId}
+                  onClick={async () => {
+                    if (!selectedBacklogId) return
+                    try {
+                      await updateActionStatus(selectedBacklogId, 'Today')
+                      message.success('已加入 Today')
+                      setSelectedBacklogId(undefined)
+                      await loadTodayData()
+                    } catch (err) {
+                      console.error(err)
+                      message.error(`操作失败：${String(err)}`)
+                    }
+                  }}
+                >
+                  加入 Today
+                </Button>
+              </Space>
+            </Space>
+          </Card>
+          <Card title={`今日任务（${todayList.length}）`} loading={todayLoading}>
+            <List
+              dataSource={todayList}
+              locale={{ emptyText: '暂无 Today 任务' }}
+              renderItem={(item) => (
+                <List.Item
+                  actions={[
+                    <Button
+                      key="done"
+                      type="link"
+                      onClick={async () => {
+                        try {
+                          await updateActionStatus(item.id, 'Done')
+                          message.success('已标记完成')
+                          await loadTodayData()
+                        } catch (err) {
+                          console.error(err)
+                          message.error(`操作失败：${String(err)}`)
+                        }
+                      }}
+                    >
+                      标记完成
+                    </Button>,
+                    <Button
+                      key="backlog"
+                      type="link"
+                      onClick={async () => {
+                        try {
+                          await updateActionStatus(item.id, 'Backlog')
+                          message.info('已移回 Backlog')
+                          await loadTodayData()
+                        } catch (err) {
+                          console.error(err)
+                          message.error(`操作失败：${String(err)}`)
+                        }
+                      }}
+                    >
+                      移回 Backlog
+                    </Button>,
+                  ]}
+                >
+                  <Space direction="vertical">
+                    <Text strong>{item.title}</Text>
+                    <Space wrap>
+                      {item.krTitle && <Tag color="blue">{item.krTitle}</Tag>}
+                      {item.minutes && <Tag>预计 {item.minutes} 分钟</Tag>}
+                      {item.planDate && <Tag>计划 {new Date(item.planDate).toLocaleDateString('zh-CN')}</Tag>}
+                    </Space>
+                  </Space>
+                </List.Item>
+              )}
+            />
+          </Card>
+        </Space>
       ),
     },
     {
