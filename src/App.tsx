@@ -1,6 +1,21 @@
 import { useEffect, useState } from 'react'
 import { bitable } from '@lark-base-open/js-sdk'
-import { Alert, Button, Card, Divider, List, Select, Space, Tabs, Tag, Typography, message } from 'antd'
+import {
+  Alert,
+  Button,
+  Card,
+  Divider,
+  Input,
+  InputNumber,
+  List,
+  Modal,
+  Select,
+  Space,
+  Tabs,
+  Tag,
+  Typography,
+  message,
+} from 'antd'
 import OperationRunner from './components/OperationRunner'
 import './App.css'
 
@@ -143,6 +158,7 @@ function App() {
       title: string
       minutes?: number
       planDate?: number
+      krId?: string
       krTitle?: string
     }>
   >([])
@@ -155,6 +171,45 @@ function App() {
   const [bankActions, setBankActions] = useState<
     Array<{ id: string; title: string; minutes?: number; planDate?: number; krId?: string; krTitle?: string }>
   >([])
+  const [evidenceLoading, setEvidenceLoading] = useState(false)
+  const [evidenceError, setEvidenceError] = useState<string | null>(null)
+  const [evidenceActions, setEvidenceActions] = useState<Array<{ value: string; label: string }>>([])
+  const [evidenceActionMeta, setEvidenceActionMeta] = useState<Record<string, { krId?: string; krTitle?: string }>>({})
+  const [evidenceTypeOptions, setEvidenceTypeOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [evidenceList, setEvidenceList] = useState<
+    Array<{ title: string; type?: string; date?: number; krTitle?: string; actionTitle?: string }>
+  >([])
+  const [selectedEvidenceAction, setSelectedEvidenceAction] = useState<string>()
+  const [evidenceTitle, setEvidenceTitle] = useState('')
+  const [evidenceType, setEvidenceType] = useState<string>('Note')
+  const [evidenceLink, setEvidenceLink] = useState('')
+  const [completeModalOpen, setCompleteModalOpen] = useState(false)
+  const [completeActionId, setCompleteActionId] = useState<string>()
+  const [completeActionTitle, setCompleteActionTitle] = useState<string>('')
+  const [completeActionKrId, setCompleteActionKrId] = useState<string>()
+  const [completeEvidenceTitle, setCompleteEvidenceTitle] = useState('')
+  const [completeEvidenceType, setCompleteEvidenceType] = useState<string>('Note')
+  const [completeEvidenceLink, setCompleteEvidenceLink] = useState('')
+  const [completeFailureReason, setCompleteFailureReason] = useState('')
+  const [driftLoading, setDriftLoading] = useState(false)
+  const [driftError, setDriftError] = useState<string | null>(null)
+  const [driftList, setDriftList] = useState<
+    Array<{ id: string; title: string; progress?: number; confidence?: number; daysSinceEvidence: number | null }>
+  >([])
+  const [ideasLoading, setIdeasLoading] = useState(false)
+  const [ideasError, setIdeasError] = useState<string | null>(null)
+  const [ideasList, setIdeasList] = useState<
+    Array<{ id: string; title: string; minutes?: number; status?: string; krTitle?: string }>
+  >([])
+  const [ideasKrOptions, setIdeasKrOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [ideaTitle, setIdeaTitle] = useState('')
+  const [ideaMinutes, setIdeaMinutes] = useState<number | null>(null)
+  const [ideaNotes, setIdeaNotes] = useState('')
+  const [ideaKrId, setIdeaKrId] = useState<string>()
+  const [guardrailTitle, setGuardrailTitle] = useState('')
+  const [guardrailMinutes, setGuardrailMinutes] = useState<number | null>(null)
+  const [guardrailKrId, setGuardrailKrId] = useState<string>()
+  const [guardrailModalOpen, setGuardrailModalOpen] = useState(false)
 
   const runSeed = async (ctx: { step: (line: string) => Promise<void> }) => {
     const { step } = ctx
@@ -402,7 +457,7 @@ function App() {
       const planDateFieldId = resolveFieldId(actionFields.byName.get('Plan_Date')!)
       const krLinkFieldId = resolveFieldId(actionFields.byName.get('KeyResult')!)
 
-      const todayItems: Array<{ id: string; title: string; minutes?: number; planDate?: number; krTitle?: string }> = []
+      const todayItems: Array<{ id: string; title: string; minutes?: number; planDate?: number; krId?: string; krTitle?: string }> = []
       const backlogItems: Array<{ value: string; label: string }> = []
 
       actionRecords.records.forEach((record) => {
@@ -412,10 +467,11 @@ function App() {
         const minutes = record.fields[minutesFieldId] as number | undefined
         const planDate = record.fields[planDateFieldId] as number | undefined
         const krLinks = record.fields[krLinkFieldId] as string[] | undefined
-        const krTitle = krLinks && krLinks.length > 0 ? krMap.get(krLinks[0]) : undefined
+        const krId = krLinks && krLinks.length > 0 ? krLinks[0] : undefined
+        const krTitle = krId ? krMap.get(krId) : undefined
 
         if (statusLabel === 'Today') {
-          todayItems.push({ id: record.recordId, title, minutes, planDate, krTitle })
+          todayItems.push({ id: record.recordId, title, minutes, planDate, krId, krTitle })
         }
         if (statusLabel === 'Backlog') {
           backlogItems.push({ value: record.recordId, label: title })
@@ -511,6 +567,268 @@ function App() {
     const statusValue = selectValue('Status', status, actionFields.optionMap)
     await actionTable.setRecord(recordId, { fields: { [statusFieldId]: statusValue } })
   }
+
+  const createEvidence = async (params: {
+    title: string
+    type: string
+    link?: string
+    actionId?: string
+    krId?: string
+  }) => {
+    const evidenceTable = await getTableByName('Evidence')
+    const evidenceFields = buildFieldIndex(await evidenceTable.getFieldMetaList())
+    const payload: Record<string, unknown> = {}
+    if (evidenceFields.primaryFieldId) {
+      payload[evidenceFields.primaryFieldId] = params.title
+    }
+    payload[resolveFieldId(evidenceFields.byName.get('Evidence_Title')!)] = params.title
+    payload[resolveFieldId(evidenceFields.byName.get('Evidence_Type')!)] = selectValue(
+      'Evidence_Type',
+      params.type,
+      evidenceFields.optionMap
+    )
+    payload[resolveFieldId(evidenceFields.byName.get('Date')!)] = Date.now()
+    if (params.link) {
+      payload[resolveFieldId(evidenceFields.byName.get('Link')!)] = params.link
+    }
+    if (params.krId) {
+      payload[resolveFieldId(evidenceFields.byName.get('KeyResult')!)] = [params.krId]
+    }
+    if (params.actionId) {
+      payload[resolveFieldId(evidenceFields.byName.get('Action')!)] = [params.actionId]
+    }
+    await evidenceTable.addRecord({ fields: payload })
+  }
+
+  const loadEvidenceData = async () => {
+    if (!isBitable) {
+      setEvidenceError('当前为本地预览环境，请在飞书多维表格插件中使用。')
+      return
+    }
+    setEvidenceLoading(true)
+    setEvidenceError(null)
+    try {
+      const evidenceTable = await getTableByName('Evidence')
+      const actionTable = await getTableByName('Actions')
+      const krTable = await getTableByName('KeyResults')
+
+      const evidenceFields = buildFieldIndex(await evidenceTable.getFieldMetaList())
+      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
+      const krFields = buildFieldIndex(await krTable.getFieldMetaList())
+
+      const krRecords = await krTable.getRecords({ pageSize: 5000 })
+      const actionRecords = await actionTable.getRecords({ pageSize: 5000 })
+      const evidenceRecords = await evidenceTable.getRecords({ pageSize: 5000 })
+
+      const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
+      const krMap = new Map<string, string>()
+      krRecords.records.forEach((record) => {
+        const title = record.fields[krTitleId] as string | undefined
+        if (title) {
+          krMap.set(record.recordId, title)
+        }
+      })
+
+      const actionTitleId = resolveFieldId(actionFields.byName.get('Action_Title')!)
+      const actionKrId = resolveFieldId(actionFields.byName.get('KeyResult')!)
+      const actionMap: Record<string, { title: string; krId?: string; krTitle?: string }> = {}
+      const actionOptions: Array<{ value: string; label: string }> = []
+
+      actionRecords.records.forEach((record) => {
+        const title = (record.fields[actionTitleId] as string) || '未命名 Action'
+        const krLinks = record.fields[actionKrId] as string[] | undefined
+        const krId = krLinks && krLinks.length > 0 ? krLinks[0] : undefined
+        const krTitle = krId ? krMap.get(krId) : undefined
+        actionMap[record.recordId] = { title, krId, krTitle }
+        actionOptions.push({ value: record.recordId, label: title })
+      })
+
+      const typeOptions = evidenceFields.optionMap.get('Evidence_Type')
+      const optionList = typeOptions
+        ? Array.from(typeOptions.keys()).map((name) => ({ value: name, label: name }))
+        : []
+      if (optionList.length === 0) {
+        optionList.push({ value: 'Note', label: 'Note' })
+      }
+      setEvidenceTypeOptions(optionList)
+      setEvidenceActions(actionOptions)
+      setEvidenceActionMeta(actionMap)
+
+      const evidenceTitleId = resolveFieldId(evidenceFields.byName.get('Evidence_Title')!)
+      const evidenceTypeId = resolveFieldId(evidenceFields.byName.get('Evidence_Type')!)
+      const evidenceDateId = resolveFieldId(evidenceFields.byName.get('Date')!)
+      const evidenceKrId = resolveFieldId(evidenceFields.byName.get('KeyResult')!)
+      const evidenceActionId = resolveFieldId(evidenceFields.byName.get('Action')!)
+
+      const list = evidenceRecords.records
+        .map((record) => {
+          const title = (record.fields[evidenceTitleId] as string) || '未命名证据'
+          const typeLabel = resolveSelectLabel(record.fields[evidenceTypeId], 'Evidence_Type', evidenceFields.optionIdMap)
+          const date = record.fields[evidenceDateId] as number | undefined
+          const krLinks = record.fields[evidenceKrId] as string[] | undefined
+          const actionLinks = record.fields[evidenceActionId] as string[] | undefined
+          const krTitle = krLinks && krLinks.length > 0 ? krMap.get(krLinks[0]) : undefined
+          const actionTitle = actionLinks && actionLinks.length > 0 ? actionMap[actionLinks[0]]?.title : undefined
+          return { title, type: typeLabel, date, krTitle, actionTitle }
+        })
+        .sort((a, b) => (b.date ?? 0) - (a.date ?? 0))
+        .slice(0, 10)
+
+      setEvidenceList(list)
+    } catch (err) {
+      console.error(err)
+      setEvidenceError(`加载失败：${String(err)}`)
+    } finally {
+      setEvidenceLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'evidence') {
+      void loadEvidenceData()
+    }
+  }, [activeTab])
+
+  const loadDriftData = async () => {
+    if (!isBitable) {
+      setDriftError('当前为本地预览环境，请在飞书多维表格插件中使用。')
+      return
+    }
+    setDriftLoading(true)
+    setDriftError(null)
+    try {
+      const krTable = await getTableByName('KeyResults')
+      const evidenceTable = await getTableByName('Evidence')
+      const actionTable = await getTableByName('Actions')
+
+      const krFields = buildFieldIndex(await krTable.getFieldMetaList())
+      const evidenceFields = buildFieldIndex(await evidenceTable.getFieldMetaList())
+      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
+
+      const krRecords = await krTable.getRecords({ pageSize: 5000 })
+      const evidenceRecords = await evidenceTable.getRecords({ pageSize: 5000 })
+      const actionRecords = await actionTable.getRecords({ pageSize: 5000 })
+
+      const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
+      const krProgressId = resolveFieldId(krFields.byName.get('Progress')!)
+      const krConfidenceId = resolveFieldId(krFields.byName.get('Confidence')!)
+      const evidenceKrId = resolveFieldId(evidenceFields.byName.get('KeyResult')!)
+      const evidenceDateId = resolveFieldId(evidenceFields.byName.get('Date')!)
+      const actionKrId = resolveFieldId(actionFields.byName.get('KeyResult')!)
+
+      const evidenceMap = new Map<string, number>()
+      evidenceRecords.records.forEach((record) => {
+        const krLinks = record.fields[evidenceKrId] as string[] | undefined
+        const date = record.fields[evidenceDateId] as number | undefined
+        if (!krLinks || !date) return
+        krLinks.forEach((krId) => {
+          const prev = evidenceMap.get(krId) ?? 0
+          if (date > prev) {
+            evidenceMap.set(krId, date)
+          }
+        })
+      })
+
+      let unaligned = 0
+      actionRecords.records.forEach((record) => {
+        const links = record.fields[actionKrId] as string[] | undefined
+        if (!links || links.length === 0) {
+          unaligned += 1
+        }
+      })
+      setUnalignedActions(unaligned)
+
+      const now = Date.now()
+      const dayMs = 24 * 60 * 60 * 1000
+      const krList = krRecords.records.map((record) => {
+        const id = record.recordId
+        const title = (record.fields[krTitleId] as string) || '未命名 KR'
+        const progress = record.fields[krProgressId] as number | undefined
+        const confidence = record.fields[krConfidenceId] as number | undefined
+        const lastEvidence = evidenceMap.get(id)
+        const daysSinceEvidence = lastEvidence ? Math.floor((now - lastEvidence) / dayMs) : null
+        return { id, title, progress, confidence, daysSinceEvidence }
+      })
+
+      const driftItems = krList
+        .filter((kr) => kr.daysSinceEvidence === null || kr.daysSinceEvidence >= 2)
+        .sort((a, b) => {
+          const aScore = a.daysSinceEvidence === null ? Number.POSITIVE_INFINITY : a.daysSinceEvidence
+          const bScore = b.daysSinceEvidence === null ? Number.POSITIVE_INFINITY : b.daysSinceEvidence
+          if (aScore !== bScore) return bScore - aScore
+          return (a.progress ?? 0) - (b.progress ?? 0)
+        })
+      setDriftList(driftItems)
+      setDriftKrsCount(driftItems.length)
+    } catch (err) {
+      console.error(err)
+      setDriftError(`加载失败：${String(err)}`)
+    } finally {
+      setDriftLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'drift') {
+      void loadDriftData()
+    }
+  }, [activeTab])
+
+  const loadIdeasData = async () => {
+    if (!isBitable) {
+      setIdeasError('当前为本地预览环境，请在飞书多维表格插件中使用。')
+      return
+    }
+    setIdeasLoading(true)
+    setIdeasError(null)
+    try {
+      const ideasTable = await getTableByName('Ideas')
+      const krTable = await getTableByName('KeyResults')
+      const ideasFields = buildFieldIndex(await ideasTable.getFieldMetaList())
+      const krFields = buildFieldIndex(await krTable.getFieldMetaList())
+
+      const ideasRecords = await ideasTable.getRecords({ pageSize: 5000 })
+      const krRecords = await krTable.getRecords({ pageSize: 5000 })
+
+      const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
+      const krMap = new Map<string, string>()
+      const krOptions: Array<{ value: string; label: string }> = []
+      krRecords.records.forEach((record) => {
+        const title = record.fields[krTitleId] as string | undefined
+        if (!title) return
+        krMap.set(record.recordId, title)
+        krOptions.push({ value: record.recordId, label: title })
+      })
+      setIdeasKrOptions(krOptions)
+
+      const titleId = resolveFieldId(ideasFields.byName.get('Idea_Title')!)
+      const minutesId = resolveFieldId(ideasFields.byName.get('Est_Minutes')!)
+      const statusId = resolveFieldId(ideasFields.byName.get('Status')!)
+      const krIdField = resolveFieldId(ideasFields.byName.get('KeyResults')!)
+
+      const list = ideasRecords.records.map((record) => {
+        const title = (record.fields[titleId] as string) || '未命名想法'
+        const minutes = record.fields[minutesId] as number | undefined
+        const status = resolveSelectLabel(record.fields[statusId], 'Status', ideasFields.optionIdMap)
+        const krLinks = record.fields[krIdField] as string[] | undefined
+        const krTitle = krLinks && krLinks.length > 0 ? krMap.get(krLinks[0]) : undefined
+        return { id: record.recordId, title, minutes, status, krTitle }
+      })
+
+      setIdeasList(list)
+    } catch (err) {
+      console.error(err)
+      setIdeasError(`加载失败：${String(err)}`)
+    } finally {
+      setIdeasLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'ideas' || activeTab === 'guardrail') {
+      void loadIdeasData()
+    }
+  }, [activeTab])
 
   const tabs = [
     {
@@ -636,15 +954,15 @@ function App() {
                     <Button
                       key="done"
                       type="link"
-                      onClick={async () => {
-                        try {
-                          await updateActionStatus(item.id, 'Done')
-                          message.success('已标记完成')
-                          await loadTodayData()
-                        } catch (err) {
-                          console.error(err)
-                          message.error(`操作失败：${String(err)}`)
-                        }
+                      onClick={() => {
+                        setCompleteActionId(item.id)
+                        setCompleteActionTitle(item.title)
+                        setCompleteActionKrId(item.krId)
+                        setCompleteEvidenceTitle('')
+                        setCompleteEvidenceLink('')
+                        setCompleteFailureReason('')
+                        setCompleteEvidenceType(evidenceTypeOptions[0]?.value ?? 'Note')
+                        setCompleteModalOpen(true)
                       }}
                     >
                       标记完成
@@ -747,36 +1065,315 @@ function App() {
       key: 'evidence',
       label: 'Evidence',
       children: (
-        <Card>
-          <Text>完成 Action 时强制添加证据或失败原因。</Text>
-        </Card>
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {evidenceError && <Alert type="error" showIcon message={evidenceError} />}
+          <Card title="新增证据" loading={evidenceLoading}>
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Select
+                placeholder="选择 Action"
+                options={evidenceActions}
+                value={selectedEvidenceAction}
+                onChange={setSelectedEvidenceAction}
+              />
+              <Input
+                placeholder="证据标题"
+                value={evidenceTitle}
+                onChange={(e) => setEvidenceTitle(e.target.value)}
+              />
+              <Select
+                placeholder="证据类型"
+                options={evidenceTypeOptions}
+                value={evidenceType}
+                onChange={setEvidenceType}
+              />
+              <Input
+                placeholder="链接（可选）"
+                value={evidenceLink}
+                onChange={(e) => setEvidenceLink(e.target.value)}
+              />
+              <Space>
+                <Button onClick={loadEvidenceData} loading={evidenceLoading}>
+                  刷新
+                </Button>
+                <Button
+                  type="primary"
+                  disabled={!selectedEvidenceAction || !evidenceTitle}
+                  onClick={async () => {
+                    if (!selectedEvidenceAction) return
+                    const meta = evidenceActionMeta[selectedEvidenceAction]
+                    try {
+                      await createEvidence({
+                        title: evidenceTitle,
+                        type: evidenceType || 'Note',
+                        link: evidenceLink || undefined,
+                        actionId: selectedEvidenceAction,
+                        krId: meta?.krId,
+                      })
+                      message.success('证据已添加')
+                      setEvidenceTitle('')
+                      setEvidenceLink('')
+                      await loadEvidenceData()
+                    } catch (err) {
+                      console.error(err)
+                      message.error(`操作失败：${String(err)}`)
+                    }
+                  }}
+                >
+                  添加证据
+                </Button>
+              </Space>
+            </Space>
+          </Card>
+          <Card title="最近证据" loading={evidenceLoading}>
+            <List
+              dataSource={evidenceList}
+              locale={{ emptyText: '暂无证据' }}
+              renderItem={(item) => (
+                <List.Item>
+                  <Space direction="vertical">
+                    <Text strong>{item.title}</Text>
+                    <Space wrap>
+                      {item.type && <Tag color="blue">{item.type}</Tag>}
+                      {item.krTitle && <Tag>{item.krTitle}</Tag>}
+                      {item.actionTitle && <Tag color="gold">{item.actionTitle}</Tag>}
+                      {item.date && <Tag>{new Date(item.date).toLocaleDateString('zh-CN')}</Tag>}
+                    </Space>
+                  </Space>
+                </List.Item>
+              )}
+            />
+          </Card>
+        </Space>
       ),
     },
     {
       key: 'drift',
       label: 'Drift',
       children: (
-        <Card>
-          <Text>偏航指标：连续无证据天数、未关联 KR 的 Action 数。</Text>
-        </Card>
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {driftError && <Alert type="error" showIcon message={driftError} />}
+          <Card>
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Space wrap>
+                <Tag color={driftKrsCount > 0 ? 'red' : 'green'}>偏航 KR：{driftKrsCount}</Tag>
+                <Tag color={unalignedActions > 0 ? 'orange' : 'green'}>未关联 Action：{unalignedActions}</Tag>
+              </Space>
+              <Space wrap>
+                <Button onClick={loadDriftData} loading={driftLoading}>
+                  刷新
+                </Button>
+              </Space>
+            </Space>
+          </Card>
+          <Card title="偏航 KR 列表" loading={driftLoading}>
+            <List
+              dataSource={driftList}
+              locale={{ emptyText: '暂无偏航 KR' }}
+              renderItem={(item) => {
+                const evidenceText =
+                  item.daysSinceEvidence === null ? '无证据' : `${item.daysSinceEvidence} 天`
+                return (
+                  <List.Item>
+                    <Space direction="vertical">
+                      <Text strong>{item.title}</Text>
+                      <Space wrap>
+                        <Tag color="blue">进度：{item.progress ?? 0}%</Tag>
+                        <Tag color="gold">信心：{item.confidence ?? '-'}</Tag>
+                        <Tag>距上次证据：{evidenceText}</Tag>
+                      </Space>
+                    </Space>
+                  </List.Item>
+                )
+              }}
+            />
+          </Card>
+          <Card title="纠偏 Playbook">
+            <List
+              dataSource={[
+                '选择 1 个 KR 的本周交付',
+                '拉取 1 个 30 分钟最小动作',
+                '产出 1 个证据（哪怕是 1 页 memo）',
+              ]}
+              renderItem={(item) => <List.Item>{item}</List.Item>}
+            />
+          </Card>
+        </Space>
       ),
     },
     {
       key: 'ideas',
       label: 'Parking Lot',
       children: (
-        <Card>
-          <Text>记录想法，控制探索预算。</Text>
-        </Card>
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {ideasError && <Alert type="error" showIcon message={ideasError} />}
+          <Card title="新增想法" loading={ideasLoading}>
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Input
+                placeholder="想法标题"
+                value={ideaTitle}
+                onChange={(e) => setIdeaTitle(e.target.value)}
+              />
+              <InputNumber
+                placeholder="预计耗时（分钟）"
+                min={1}
+                value={ideaMinutes ?? undefined}
+                onChange={(value) => setIdeaMinutes(typeof value === 'number' ? value : null)}
+              />
+              <Select
+                placeholder="关联 KR（可选）"
+                allowClear
+                options={ideasKrOptions}
+                value={ideaKrId}
+                onChange={(value) => setIdeaKrId(value)}
+              />
+              <Input.TextArea
+                rows={3}
+                placeholder="备注"
+                value={ideaNotes}
+                onChange={(e) => setIdeaNotes(e.target.value)}
+              />
+              <Space>
+                <Button onClick={loadIdeasData} loading={ideasLoading}>
+                  刷新
+                </Button>
+                <Button
+                  type="primary"
+                  disabled={!ideaTitle || !ideaMinutes}
+                  onClick={async () => {
+                    try {
+                      const ideasTable = await getTableByName('Ideas')
+                      const ideasFields = buildFieldIndex(await ideasTable.getFieldMetaList())
+                      const payload: Record<string, unknown> = {}
+                      if (ideasFields.primaryFieldId) {
+                        payload[ideasFields.primaryFieldId] = ideaTitle
+                      }
+                      payload[resolveFieldId(ideasFields.byName.get('Idea_Title')!)] = ideaTitle
+                      payload[resolveFieldId(ideasFields.byName.get('Est_Minutes')!)] = ideaMinutes ?? 0
+                      payload[resolveFieldId(ideasFields.byName.get('Status')!)] = selectValue(
+                        'Status',
+                        'Parking',
+                        ideasFields.optionMap
+                      )
+                      payload[resolveFieldId(ideasFields.byName.get('Notes')!)] = ideaNotes
+                      if (ideaKrId) {
+                        payload[resolveFieldId(ideasFields.byName.get('KeyResults')!)] = [ideaKrId]
+                      }
+                      await ideasTable.addRecord({ fields: payload })
+                      message.success('想法已加入 Parking')
+                      setIdeaTitle('')
+                      setIdeaMinutes(null)
+                      setIdeaNotes('')
+                      setIdeaKrId(undefined)
+                      await loadIdeasData()
+                    } catch (err) {
+                      console.error(err)
+                      message.error(`操作失败：${String(err)}`)
+                    }
+                  }}
+                >
+                  加入 Parking
+                </Button>
+              </Space>
+            </Space>
+          </Card>
+          <Card title={`Parking 列表（${ideasList.length}）`} loading={ideasLoading}>
+            <List
+              dataSource={ideasList}
+              locale={{ emptyText: '暂无想法' }}
+              renderItem={(item) => (
+                <List.Item>
+                  <Space direction="vertical">
+                    <Text strong>{item.title}</Text>
+                    <Space wrap>
+                      {item.status && <Tag>{item.status}</Tag>}
+                      {item.minutes && <Tag>预计 {item.minutes} 分钟</Tag>}
+                      {item.krTitle && <Tag color="blue">{item.krTitle}</Tag>}
+                    </Space>
+                  </Space>
+                </List.Item>
+              )}
+            />
+          </Card>
+        </Space>
       ),
     },
     {
       key: 'guardrail',
       label: 'Guardrail',
       children: (
-        <Card>
-          <Text>新建 Action 超过 30 分钟且无 KR 时提示转 Parking。</Text>
-        </Card>
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Card title="新建 Action（护栏）">
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Input
+                placeholder="Action 标题"
+                value={guardrailTitle}
+                onChange={(e) => setGuardrailTitle(e.target.value)}
+              />
+              <InputNumber
+                placeholder="预计耗时（分钟）"
+                min={1}
+                value={guardrailMinutes ?? undefined}
+                onChange={(value) => setGuardrailMinutes(typeof value === 'number' ? value : null)}
+              />
+              <Select
+                placeholder="关联 KR（可选）"
+                allowClear
+                options={ideasKrOptions}
+                value={guardrailKrId}
+                onChange={(value) => setGuardrailKrId(value)}
+              />
+              <Space>
+                <Button onClick={loadIdeasData} loading={ideasLoading}>
+                  刷新 KR
+                </Button>
+                <Button
+                  type="primary"
+                  disabled={!guardrailTitle || !guardrailMinutes}
+                  onClick={async () => {
+                    if (!guardrailMinutes || !guardrailTitle) return
+                    if (guardrailMinutes > 30 && !guardrailKrId) {
+                      setGuardrailModalOpen(true)
+                      return
+                    }
+                    try {
+                      const actionTable = await getTableByName('Actions')
+                      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
+                      const payload: Record<string, unknown> = {}
+                      if (actionFields.primaryFieldId) {
+                        payload[actionFields.primaryFieldId] = guardrailTitle
+                      }
+                      payload[resolveFieldId(actionFields.byName.get('Action_Title')!)] = guardrailTitle
+                      payload[resolveFieldId(actionFields.byName.get('Est_Minutes')!)] = guardrailMinutes
+                      payload[resolveFieldId(actionFields.byName.get('Status')!)] = selectValue(
+                        'Status',
+                        'Backlog',
+                        actionFields.optionMap
+                      )
+                      if (guardrailKrId) {
+                        payload[resolveFieldId(actionFields.byName.get('KeyResult')!)] = [guardrailKrId]
+                      }
+                      await actionTable.addRecord({ fields: payload })
+                      message.success('Action 已创建')
+                      setGuardrailTitle('')
+                      setGuardrailMinutes(null)
+                      setGuardrailKrId(undefined)
+                    } catch (err) {
+                      console.error(err)
+                      message.error(`操作失败：${String(err)}`)
+                    }
+                  }}
+                >
+                  创建 Action
+                </Button>
+              </Space>
+            </Space>
+          </Card>
+          <Alert
+            type="info"
+            showIcon
+            message="规则：预计耗时 > 30 分钟且未关联 KR 的任务，需要先进入 Parking Lot。"
+          />
+        </Space>
       ),
     },
   ]
@@ -789,6 +1386,107 @@ function App() {
       </div>
       <Divider />
       <Tabs items={tabs} activeKey={activeTab} onChange={setActiveTab} />
+      <Modal
+        title="完成 Action 并添加证据"
+        open={completeModalOpen}
+        onCancel={() => setCompleteModalOpen(false)}
+        onOk={async () => {
+          if (!completeActionId) return
+          if (!completeEvidenceTitle && !completeFailureReason) {
+            message.error('请填写证据标题或失败原因')
+            return
+          }
+          try {
+            const title = completeEvidenceTitle || `失败原因：${completeFailureReason}`
+            const type = completeEvidenceTitle ? completeEvidenceType || 'Note' : 'Note'
+            const link = completeEvidenceTitle ? completeEvidenceLink : ''
+            await createEvidence({
+              title,
+              type,
+              link: link || undefined,
+              actionId: completeActionId,
+              krId: completeActionKrId,
+            })
+            await updateActionStatus(completeActionId, 'Done')
+            message.success('已完成并记录证据')
+            setCompleteModalOpen(false)
+            await loadTodayData()
+            await loadEvidenceData()
+          } catch (err) {
+            console.error(err)
+            message.error(`操作失败：${String(err)}`)
+          }
+        }}
+        okText="确认完成"
+        cancelText="取消"
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Text strong>{completeActionTitle}</Text>
+          <Input
+            placeholder="证据标题（或留空并填写失败原因）"
+            value={completeEvidenceTitle}
+            onChange={(e) => setCompleteEvidenceTitle(e.target.value)}
+          />
+          <Select
+            placeholder="证据类型"
+            options={evidenceTypeOptions}
+            value={completeEvidenceType}
+            onChange={setCompleteEvidenceType}
+          />
+          <Input
+            placeholder="证据链接（可选）"
+            value={completeEvidenceLink}
+            onChange={(e) => setCompleteEvidenceLink(e.target.value)}
+          />
+          <Input.TextArea
+            rows={3}
+            placeholder="失败原因（可选）"
+            value={completeFailureReason}
+            onChange={(e) => setCompleteFailureReason(e.target.value)}
+          />
+        </Space>
+      </Modal>
+      <Modal
+        title="护栏提示"
+        open={guardrailModalOpen}
+        onCancel={() => setGuardrailModalOpen(false)}
+        onOk={async () => {
+          try {
+            const ideasTable = await getTableByName('Ideas')
+            const ideasFields = buildFieldIndex(await ideasTable.getFieldMetaList())
+            const payload: Record<string, unknown> = {}
+            if (ideasFields.primaryFieldId) {
+              payload[ideasFields.primaryFieldId] = guardrailTitle
+            }
+            payload[resolveFieldId(ideasFields.byName.get('Idea_Title')!)] = guardrailTitle
+            payload[resolveFieldId(ideasFields.byName.get('Est_Minutes')!)] = guardrailMinutes ?? 0
+            payload[resolveFieldId(ideasFields.byName.get('Status')!)] = selectValue(
+              'Status',
+              'Parking',
+              ideasFields.optionMap
+            )
+            if (guardrailKrId) {
+              payload[resolveFieldId(ideasFields.byName.get('KeyResults')!)] = [guardrailKrId]
+            }
+            await ideasTable.addRecord({ fields: payload })
+            message.success('已放入 Parking Lot')
+            setGuardrailModalOpen(false)
+            setGuardrailTitle('')
+            setGuardrailMinutes(null)
+            setGuardrailKrId(undefined)
+            await loadIdeasData()
+          } catch (err) {
+            console.error(err)
+            message.error(`操作失败：${String(err)}`)
+          }
+        }}
+        okText="放入 Parking"
+        cancelText="取消"
+      >
+        <Text>
+          预计耗时超过 30 分钟且未关联 KR。是否将该任务放入 Parking Lot？
+        </Text>
+      </Modal>
     </div>
   )
 }
