@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { bitable } from '@lark-base-open/js-sdk'
-import { Card, Divider, Tabs, Typography, message } from 'antd'
+import { Alert, Button, Card, Divider, List, Space, Tabs, Tag, Typography, message } from 'antd'
 import OperationRunner from './components/OperationRunner'
 import './App.css'
 
@@ -25,6 +25,7 @@ type FieldMeta = {
 
 type TableApi = {
   getFieldMetaList: () => Promise<FieldMeta[]>
+  getRecords: (params?: { pageSize?: number }) => Promise<{ records: Array<{ recordId: string; fields: Record<string, unknown> }> }>
   addRecord: (payload: { fields: Record<string, unknown> }) => Promise<string>
 }
 
@@ -92,6 +93,21 @@ function selectValue(fieldName: string, label: string, optionMap: Map<string, Ma
 
 function App() {
   const isBitable = Boolean((bitable as unknown as { base?: unknown }).base)
+  const [activeTab, setActiveTab] = useState('demo')
+  const [homeLoading, setHomeLoading] = useState(false)
+  const [homeError, setHomeError] = useState<string | null>(null)
+  const [topKrs, setTopKrs] = useState<
+    Array<{
+      id: string
+      title: string
+      progress?: number
+      confidence?: number
+      due?: number
+      daysSinceEvidence: number | null
+    }>
+  >([])
+  const [driftKrsCount, setDriftKrsCount] = useState(0)
+  const [unalignedActions, setUnalignedActions] = useState(0)
 
   const runSeed = async (ctx: { step: (line: string) => Promise<void> }) => {
     const { step } = ctx
@@ -221,6 +237,93 @@ function App() {
     }
   }
 
+  const loadHomeData = async () => {
+    if (!isBitable) {
+      setHomeError('当前为本地预览环境，请在飞书多维表格插件中使用。')
+      return
+    }
+    setHomeLoading(true)
+    setHomeError(null)
+    try {
+      const krTable = await getTableByName('KeyResults')
+      const evidenceTable = await getTableByName('Evidence')
+      const actionTable = await getTableByName('Actions')
+
+      const krFields = buildFieldIndex(await krTable.getFieldMetaList())
+      const evidenceFields = buildFieldIndex(await evidenceTable.getFieldMetaList())
+      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
+
+      const krRecords = await krTable.getRecords({ pageSize: 5000 })
+      const evidenceRecords = await evidenceTable.getRecords({ pageSize: 5000 })
+      const actionRecords = await actionTable.getRecords({ pageSize: 5000 })
+
+      const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
+      const krProgressId = resolveFieldId(krFields.byName.get('Progress')!)
+      const krConfidenceId = resolveFieldId(krFields.byName.get('Confidence')!)
+      const krDueId = resolveFieldId(krFields.byName.get('Due_Date')!)
+      const evidenceKrId = resolveFieldId(evidenceFields.byName.get('KeyResult')!)
+      const evidenceDateId = resolveFieldId(evidenceFields.byName.get('Date')!)
+      const actionKrId = resolveFieldId(actionFields.byName.get('KeyResult')!)
+
+      const evidenceMap = new Map<string, number>()
+      evidenceRecords.records.forEach((record) => {
+        const krLinks = record.fields[evidenceKrId] as string[] | undefined
+        const date = record.fields[evidenceDateId] as number | undefined
+        if (!krLinks || !date) return
+        krLinks.forEach((krId) => {
+          const prev = evidenceMap.get(krId) ?? 0
+          if (date > prev) {
+            evidenceMap.set(krId, date)
+          }
+        })
+      })
+
+      let unaligned = 0
+      actionRecords.records.forEach((record) => {
+        const links = record.fields[actionKrId] as string[] | undefined
+        if (!links || links.length === 0) {
+          unaligned += 1
+        }
+      })
+      setUnalignedActions(unaligned)
+
+      const now = Date.now()
+      const dayMs = 24 * 60 * 60 * 1000
+      const krList = krRecords.records.map((record) => {
+        const id = record.recordId
+        const title = (record.fields[krTitleId] as string) || '未命名 KR'
+        const progress = record.fields[krProgressId] as number | undefined
+        const confidence = record.fields[krConfidenceId] as number | undefined
+        const due = record.fields[krDueId] as number | undefined
+        const lastEvidence = evidenceMap.get(id)
+        const daysSinceEvidence = lastEvidence ? Math.floor((now - lastEvidence) / dayMs) : null
+        return { id, title, progress, confidence, due, daysSinceEvidence }
+      })
+
+      const driftCount = krList.filter((kr) => kr.daysSinceEvidence === null || kr.daysSinceEvidence >= 2).length
+      setDriftKrsCount(driftCount)
+
+      const sorted = [...krList].sort((a, b) => {
+        const aScore = a.daysSinceEvidence === null ? Number.POSITIVE_INFINITY : a.daysSinceEvidence
+        const bScore = b.daysSinceEvidence === null ? Number.POSITIVE_INFINITY : b.daysSinceEvidence
+        if (aScore !== bScore) return bScore - aScore
+        return (a.progress ?? 0) - (b.progress ?? 0)
+      })
+      setTopKrs(sorted.slice(0, 5))
+    } catch (err) {
+      console.error(err)
+      setHomeError(`加载失败：${String(err)}`)
+    } finally {
+      setHomeLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'home') {
+      void loadHomeData()
+    }
+  }, [activeTab])
+
   const tabs = [
     {
       key: 'demo',
@@ -249,9 +352,48 @@ function App() {
       key: 'home',
       label: 'Home 总览',
       children: (
-        <Card>
-          <Text>展示 Top KRs、偏航提示、开始纠偏入口。</Text>
-        </Card>
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {homeError && <Alert type="error" showIcon message={homeError} />}
+          <Card>
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Space wrap>
+                <Tag color={driftKrsCount > 0 ? 'red' : 'green'}>偏航 KR：{driftKrsCount}</Tag>
+                <Tag color={unalignedActions > 0 ? 'orange' : 'green'}>未关联 Action：{unalignedActions}</Tag>
+              </Space>
+              <Space wrap>
+                <Button onClick={loadHomeData} loading={homeLoading}>
+                  刷新
+                </Button>
+                <Button type="primary" onClick={() => setActiveTab('drift')}>
+                  开始纠偏
+                </Button>
+              </Space>
+            </Space>
+          </Card>
+          <Card title="Top KRs（按偏航优先）" loading={homeLoading}>
+            <List
+              dataSource={topKrs}
+              locale={{ emptyText: '暂无 KR' }}
+              renderItem={(kr) => {
+                const dueText = kr.due ? new Date(kr.due).toLocaleDateString('zh-CN') : '未设置'
+                const evidenceText = kr.daysSinceEvidence === null ? '无证据' : `${kr.daysSinceEvidence} 天`
+                return (
+                  <List.Item>
+                    <Space direction="vertical">
+                      <Text strong>{kr.title}</Text>
+                      <Space wrap>
+                        <Tag color="blue">进度：{kr.progress ?? 0}%</Tag>
+                        <Tag color="gold">信心：{kr.confidence ?? '-'}</Tag>
+                        <Tag>距上次证据：{evidenceText}</Tag>
+                        <Tag>截止：{dueText}</Tag>
+                      </Space>
+                    </Space>
+                  </List.Item>
+                )
+              }}
+            />
+          </Card>
+        </Space>
       ),
     },
     {
@@ -317,7 +459,7 @@ function App() {
         <Text type="secondary">MVP 闭环：OKR → Action → Evidence → Drift → 纠偏</Text>
       </div>
       <Divider />
-      <Tabs items={tabs} />
+      <Tabs items={tabs} activeKey={activeTab} onChange={setActiveTab} />
     </div>
   )
 }
