@@ -133,10 +133,11 @@ function App() {
     setLogLines([])
     let completed = 0
     const totalSteps = 14
-    const stepDone = (line: string) => {
+    const stepDone = async (line: string) => {
       completed += 1
       appendLog(line)
-      setProgress(Math.round((completed / totalSteps) * 100))
+      setProgress(Math.min(100, Math.round((completed / totalSteps) * 100)))
+      await new Promise((resolve) => setTimeout(resolve, 80))
     }
 
     try {
@@ -163,7 +164,7 @@ function App() {
         objectivePayload[objectiveFields.primaryFieldId] = objectiveTitle
       }
       const objectiveId = await objectiveTable.addRecord({ fields: objectivePayload })
-      stepDone('已创建 Objective')
+      await stepDone('已创建 Objective')
 
       const krData = [
         { title: '完成优质UGC价值验证结论', type: 'Milestone', progress: 30, confidence: 3 },
@@ -185,7 +186,7 @@ function App() {
         payload[resolveFieldId(krFields.byName.get('Objective')!)] = [objectiveId]
         payload[resolveFieldId(krFields.byName.get('Due_Date')!)] = new Date('2026-01-31').getTime()
         krIds.push(await krTable.addRecord({ fields: payload }))
-        stepDone(`已创建 KR：${kr.title}`)
+        await stepDone(`已创建 KR：${kr.title}`)
       }
 
       const actionData = [
@@ -211,7 +212,7 @@ function App() {
         payload[resolveFieldId(actionFields.byName.get('Status')!)] = selectValue('Status', 'Backlog', actionFields.optionMap)
         payload[resolveFieldId(actionFields.byName.get('KeyResult')!)] = [krIds[krIndex]]
         actionIds.push(await actionTable.addRecord({ fields: payload }))
-        stepDone(`已创建 Action：${title}`)
+        await stepDone(`已创建 Action：${title}`)
       }
 
       const evidenceData = [
@@ -231,7 +232,7 @@ function App() {
         payload[resolveFieldId(evidenceFields.byName.get('KeyResult')!)] = [krIds[krIndex]]
         payload[resolveFieldId(evidenceFields.byName.get('Action')!)] = [actionIds[actionIndex]]
         await evidenceTable.addRecord({ fields: payload })
-        stepDone(`已创建 Evidence：${title}`)
+        await stepDone(`已创建 Evidence：${title}`)
       }
 
       const weeklyPayload: Record<string, unknown> = {}
@@ -244,7 +245,7 @@ function App() {
       weeklyPayload[resolveFieldId(weeklyFields.byName.get('Time_Budget_Min')!)] = 600
       weeklyPayload[resolveFieldId(weeklyFields.byName.get('KeyResults')!)] = krIds
       await weeklyTable.addRecord({ fields: weeklyPayload })
-      stepDone('已创建 WeeklyPlan')
+      await stepDone('已创建 WeeklyPlan')
 
       const ideaPayload: Record<string, unknown> = {}
       if (ideasFields.primaryFieldId) {
@@ -256,7 +257,7 @@ function App() {
       ideaPayload[resolveFieldId(ideasFields.byName.get('Notes')!)] = '等待结论后再评估是否转正'
       ideaPayload[resolveFieldId(ideasFields.byName.get('KeyResults')!)] = [krIds[2]]
       await ideasTable.addRecord({ fields: ideaPayload })
-      stepDone('已创建 Idea')
+      await stepDone('已创建 Idea')
 
       message.success('Demo 数据已生成')
     } catch (err) {
