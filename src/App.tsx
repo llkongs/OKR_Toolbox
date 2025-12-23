@@ -5,6 +5,9 @@ import {
   Button,
   Card,
   Divider,
+  List,
+  Modal,
+  Progress,
   Space,
   Tabs,
   Typography,
@@ -100,7 +103,169 @@ function selectValue(fieldName: string, label: string, optionMap: Map<string, Ma
 
 function App() {
   const [seeding, setSeeding] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [logLines, setLogLines] = useState<string[]>([])
+  const [progress, setProgress] = useState(0)
+  const [pendingOps, setPendingOps] = useState<string[]>([])
   const isBitable = Boolean((bitable as unknown as { base?: unknown }).base)
+
+  const appendLog = (line: string) => {
+    setLogLines((prev) => [...prev, line])
+  }
+
+  const handleSeed = async () => {
+    const operations = [
+      '创建 Objective',
+      '创建 3 条 KeyResults',
+      '创建 6 条 Actions',
+      '创建 2 条 Evidence',
+      '创建 WeeklyPlan',
+      '创建 Idea',
+    ]
+    setPendingOps(operations)
+    setConfirmOpen(true)
+  }
+
+  const runSeed = async () => {
+    setConfirmOpen(false)
+    setSeeding(true)
+    setProgress(0)
+    setLogLines([])
+    let completed = 0
+    const totalSteps = 14
+    const stepDone = (line: string) => {
+      completed += 1
+      appendLog(line)
+      setProgress(Math.round((completed / totalSteps) * 100))
+    }
+
+    try {
+      const objectiveTable = await getTableByName('Objectives')
+      const krTable = await getTableByName('KeyResults')
+      const actionTable = await getTableByName('Actions')
+      const evidenceTable = await getTableByName('Evidence')
+      const weeklyTable = await getTableByName('WeeklyPlan')
+      const ideasTable = await getTableByName('Ideas')
+
+      const objectiveFields = buildFieldIndex(await objectiveTable.getFieldMetaList())
+      const krFields = buildFieldIndex(await krTable.getFieldMetaList())
+      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
+      const evidenceFields = buildFieldIndex(await evidenceTable.getFieldMetaList())
+      const weeklyFields = buildFieldIndex(await weeklyTable.getFieldMetaList())
+      const ideasFields = buildFieldIndex(await ideasTable.getFieldMetaList())
+
+      const objectiveTitle = 'O1 - 优质UGC搜索价值验证'
+      const objectivePayload: Record<string, unknown> = {
+        [objectiveFields.byName.get('O_Title') ? resolveFieldId(objectiveFields.byName.get('O_Title')!) : 'O_Title']: objectiveTitle,
+        [objectiveFields.byName.get('Cycle') ? resolveFieldId(objectiveFields.byName.get('Cycle')!) : 'Cycle']: '2026 Q1',
+      }
+      if (objectiveFields.primaryFieldId) {
+        objectivePayload[objectiveFields.primaryFieldId] = objectiveTitle
+      }
+      const objectiveId = await objectiveTable.addRecord({ fields: objectivePayload })
+      stepDone('已创建 Objective')
+
+      const krData = [
+        { title: '完成优质UGC价值验证结论', type: 'Milestone', progress: 30, confidence: 3 },
+        { title: '完成漏斗效率分析并明确提效空间', type: 'Deliverable', progress: 20, confidence: 3 },
+        { title: '验证搜索对优质UGC供给的撬动上限', type: 'Milestone', progress: 10, confidence: 2 },
+      ]
+
+      const krIds: string[] = []
+      for (const kr of krData) {
+        const payload: Record<string, unknown> = {}
+        if (krFields.primaryFieldId) {
+          payload[krFields.primaryFieldId] = kr.title
+        }
+        payload[resolveFieldId(krFields.byName.get('KR_Title')!)] = kr.title
+        payload[resolveFieldId(krFields.byName.get('Progress')!)] = kr.progress
+        payload[resolveFieldId(krFields.byName.get('Confidence')!)] = kr.confidence
+        payload[resolveFieldId(krFields.byName.get('Target')!)] = ''
+        payload[resolveFieldId(krFields.byName.get('KR_Type')!)] = selectValue('KR_Type', kr.type, krFields.optionMap)
+        payload[resolveFieldId(krFields.byName.get('Objective')!)] = [objectiveId]
+        payload[resolveFieldId(krFields.byName.get('Due_Date')!)] = new Date('2026-01-31').getTime()
+        krIds.push(await krTable.addRecord({ fields: payload }))
+        stepDone(`已创建 KR：${kr.title}`)
+      }
+
+      const actionData = [
+        [0, '补充对照实验统计，产出价值验证结论', 90, '2026-01-05', 4],
+        [0, '汇总消费价值结论，沉淀 1 页结论 memo', 60, '2026-01-16', 4],
+        [1, '做漏斗分阶段转化对比分析', 90, '2026-01-12', 4],
+        [1, '梳理提效空间与算法策略建议', 60, '2026-01-22', 4],
+        [2, '验证搜索对供给撬动的边界条件', 90, '2026-01-19', 4],
+        [2, '形成冷启动链路方案初稿', 60, '2026-01-29', 4],
+      ] as const
+
+      const actionIds: string[] = []
+      for (const [krIndex, title, minutes, planDate, planHours] of actionData) {
+        const payload: Record<string, unknown> = {}
+        if (actionFields.primaryFieldId) {
+          payload[actionFields.primaryFieldId] = title
+        }
+        payload[resolveFieldId(actionFields.byName.get('Action_Title')!)] = title
+        payload[resolveFieldId(actionFields.byName.get('Est_Minutes')!)] = minutes
+        payload[resolveFieldId(actionFields.byName.get('Due')!)] = Date.now()
+        payload[resolveFieldId(actionFields.byName.get('Plan_Date')!)] = new Date(planDate).getTime()
+        payload[resolveFieldId(actionFields.byName.get('Plan_Hours')!)] = planHours
+        payload[resolveFieldId(actionFields.byName.get('Status')!)] = selectValue('Status', 'Backlog', actionFields.optionMap)
+        payload[resolveFieldId(actionFields.byName.get('KeyResult')!)] = [krIds[krIndex]]
+        actionIds.push(await actionTable.addRecord({ fields: payload }))
+        stepDone(`已创建 Action：${title}`)
+      }
+
+      const evidenceData = [
+        [0, '价值验证实验对照分析', 'Experiment', 0],
+        [1, '漏斗效率分析结果', 'Dashboard', 2],
+      ] as const
+
+      for (const [krIndex, title, evType, actionIndex] of evidenceData) {
+        const payload: Record<string, unknown> = {}
+        if (evidenceFields.primaryFieldId) {
+          payload[evidenceFields.primaryFieldId] = title
+        }
+        payload[resolveFieldId(evidenceFields.byName.get('Evidence_Title')!)] = title
+        payload[resolveFieldId(evidenceFields.byName.get('Link')!)] = 'https://example.com'
+        payload[resolveFieldId(evidenceFields.byName.get('Date')!)] = Date.now()
+        payload[resolveFieldId(evidenceFields.byName.get('Evidence_Type')!)] = selectValue('Evidence_Type', evType, evidenceFields.optionMap)
+        payload[resolveFieldId(evidenceFields.byName.get('KeyResult')!)] = [krIds[krIndex]]
+        payload[resolveFieldId(evidenceFields.byName.get('Action')!)] = [actionIds[actionIndex]]
+        await evidenceTable.addRecord({ fields: payload })
+        stepDone(`已创建 Evidence：${title}`)
+      }
+
+      const weeklyPayload: Record<string, unknown> = {}
+      if (weeklyFields.primaryFieldId) {
+        weeklyPayload[weeklyFields.primaryFieldId] = '本周重点交付'
+      }
+      weeklyPayload[resolveFieldId(weeklyFields.byName.get('Week_Start')!)] = Date.now()
+      weeklyPayload[resolveFieldId(weeklyFields.byName.get('Deliverable')!)] = '完成价值验证结论 + 漏斗分析初稿'
+      weeklyPayload[resolveFieldId(weeklyFields.byName.get('Risk')!)] = '实验样本不足影响结论稳定性'
+      weeklyPayload[resolveFieldId(weeklyFields.byName.get('Time_Budget_Min')!)] = 600
+      weeklyPayload[resolveFieldId(weeklyFields.byName.get('KeyResults')!)] = krIds
+      await weeklyTable.addRecord({ fields: weeklyPayload })
+      stepDone('已创建 WeeklyPlan')
+
+      const ideaPayload: Record<string, unknown> = {}
+      if (ideasFields.primaryFieldId) {
+        ideaPayload[ideasFields.primaryFieldId] = '探索优质UGC冷启动激励机制'
+      }
+      ideaPayload[resolveFieldId(ideasFields.byName.get('Idea_Title')!)] = '探索优质UGC冷启动激励机制'
+      ideaPayload[resolveFieldId(ideasFields.byName.get('Est_Minutes')!)] = 120
+      ideaPayload[resolveFieldId(ideasFields.byName.get('Status')!)] = selectValue('Status', 'Parking', ideasFields.optionMap)
+      ideaPayload[resolveFieldId(ideasFields.byName.get('Notes')!)] = '等待结论后再评估是否转正'
+      ideaPayload[resolveFieldId(ideasFields.byName.get('KeyResults')!)] = [krIds[2]]
+      await ideasTable.addRecord({ fields: ideaPayload })
+      stepDone('已创建 Idea')
+
+      message.success('Demo 数据已生成')
+    } catch (err) {
+      console.error(err)
+      message.error(`生成失败：${String(err)}`)
+    } finally {
+      setSeeding(false)
+    }
+  }
 
   const tabs = useMemo(
     () => [
@@ -118,129 +283,7 @@ function App() {
                   message="当前为本地预览环境，生成数据需在飞书多维表格插件中运行。"
                 />
               )}
-              <Button type="primary" loading={seeding} onClick={async () => {
-                setSeeding(true)
-                try {
-                  const objectiveTable = await getTableByName('Objectives')
-                  const krTable = await getTableByName('KeyResults')
-                  const actionTable = await getTableByName('Actions')
-                  const evidenceTable = await getTableByName('Evidence')
-                  const weeklyTable = await getTableByName('WeeklyPlan')
-                  const ideasTable = await getTableByName('Ideas')
-
-                  const objectiveFields = buildFieldIndex(await objectiveTable.getFieldMetaList())
-                  const krFields = buildFieldIndex(await krTable.getFieldMetaList())
-                  const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
-                  const evidenceFields = buildFieldIndex(await evidenceTable.getFieldMetaList())
-                  const weeklyFields = buildFieldIndex(await weeklyTable.getFieldMetaList())
-                  const ideasFields = buildFieldIndex(await ideasTable.getFieldMetaList())
-
-                  const objectiveTitle = 'O1 - 优质UGC搜索价值验证'
-                  const objectivePayload: Record<string, unknown> = {
-                    [objectiveFields.byName.get('O_Title') ? resolveFieldId(objectiveFields.byName.get('O_Title')!) : 'O_Title']: objectiveTitle,
-                    [objectiveFields.byName.get('Cycle') ? resolveFieldId(objectiveFields.byName.get('Cycle')!) : 'Cycle']: '2026 Q1',
-                  }
-                  if (objectiveFields.primaryFieldId) {
-                    objectivePayload[objectiveFields.primaryFieldId] = objectiveTitle
-                  }
-                  const objectiveId = await objectiveTable.addRecord({ fields: objectivePayload })
-
-                  const krData = [
-                    { title: '完成优质UGC价值验证结论', type: 'Milestone', progress: 30, confidence: 3 },
-                    { title: '完成漏斗效率分析并明确提效空间', type: 'Deliverable', progress: 20, confidence: 3 },
-                    { title: '验证搜索对优质UGC供给的撬动上限', type: 'Milestone', progress: 10, confidence: 2 },
-                  ]
-
-                  const krIds: string[] = []
-                  for (const kr of krData) {
-                    const payload: Record<string, unknown> = {}
-                    if (krFields.primaryFieldId) {
-                      payload[krFields.primaryFieldId] = kr.title
-                    }
-                    payload[resolveFieldId(krFields.byName.get('KR_Title')!)] = kr.title
-                    payload[resolveFieldId(krFields.byName.get('Progress')!)] = kr.progress
-                    payload[resolveFieldId(krFields.byName.get('Confidence')!)] = kr.confidence
-                    payload[resolveFieldId(krFields.byName.get('Target')!)] = ''
-                    payload[resolveFieldId(krFields.byName.get('KR_Type')!)] = selectValue('KR_Type', kr.type, krFields.optionMap)
-                    payload[resolveFieldId(krFields.byName.get('Objective')!)] = [objectiveId]
-                    payload[resolveFieldId(krFields.byName.get('Due_Date')!)] = new Date('2026-01-31').getTime()
-                    krIds.push(await krTable.addRecord({ fields: payload }))
-                  }
-
-                  const actionData = [
-                    [0, '补充对照实验统计，产出价值验证结论', 90, '2026-01-05', 4],
-                    [0, '汇总消费价值结论，沉淀 1 页结论 memo', 60, '2026-01-16', 4],
-                    [1, '做漏斗分阶段转化对比分析', 90, '2026-01-12', 4],
-                    [1, '梳理提效空间与算法策略建议', 60, '2026-01-22', 4],
-                    [2, '验证搜索对供给撬动的边界条件', 90, '2026-01-19', 4],
-                    [2, '形成冷启动链路方案初稿', 60, '2026-01-29', 4],
-                  ] as const
-
-                  const actionIds: string[] = []
-                  for (const [krIndex, title, minutes, planDate, planHours] of actionData) {
-                    const payload: Record<string, unknown> = {}
-                    if (actionFields.primaryFieldId) {
-                      payload[actionFields.primaryFieldId] = title
-                    }
-                    payload[resolveFieldId(actionFields.byName.get('Action_Title')!)] = title
-                    payload[resolveFieldId(actionFields.byName.get('Est_Minutes')!)] = minutes
-                    payload[resolveFieldId(actionFields.byName.get('Due')!)] = Date.now()
-                    payload[resolveFieldId(actionFields.byName.get('Plan_Date')!)] = new Date(planDate).getTime()
-                    payload[resolveFieldId(actionFields.byName.get('Plan_Hours')!)] = planHours
-                    payload[resolveFieldId(actionFields.byName.get('Status')!)] = selectValue('Status', 'Backlog', actionFields.optionMap)
-                    payload[resolveFieldId(actionFields.byName.get('KeyResult')!)] = [krIds[krIndex]]
-                    actionIds.push(await actionTable.addRecord({ fields: payload }))
-                  }
-
-                  const evidenceData = [
-                    [0, '价值验证实验对照分析', 'Experiment', 0],
-                    [1, '漏斗效率分析结果', 'Dashboard', 2],
-                  ] as const
-
-                  for (const [krIndex, title, evType, actionIndex] of evidenceData) {
-                    const payload: Record<string, unknown> = {}
-                    if (evidenceFields.primaryFieldId) {
-                      payload[evidenceFields.primaryFieldId] = title
-                    }
-                    payload[resolveFieldId(evidenceFields.byName.get('Evidence_Title')!)] = title
-                    payload[resolveFieldId(evidenceFields.byName.get('Link')!)] = 'https://example.com'
-                    payload[resolveFieldId(evidenceFields.byName.get('Date')!)] = Date.now()
-                    payload[resolveFieldId(evidenceFields.byName.get('Evidence_Type')!)] = selectValue('Evidence_Type', evType, evidenceFields.optionMap)
-                    payload[resolveFieldId(evidenceFields.byName.get('KeyResult')!)] = [krIds[krIndex]]
-                    payload[resolveFieldId(evidenceFields.byName.get('Action')!)] = [actionIds[actionIndex]]
-                    await evidenceTable.addRecord({ fields: payload })
-                  }
-
-                  const weeklyPayload: Record<string, unknown> = {}
-                  if (weeklyFields.primaryFieldId) {
-                    weeklyPayload[weeklyFields.primaryFieldId] = '本周重点交付'
-                  }
-                  weeklyPayload[resolveFieldId(weeklyFields.byName.get('Week_Start')!)] = Date.now()
-                  weeklyPayload[resolveFieldId(weeklyFields.byName.get('Deliverable')!)] = '完成价值验证结论 + 漏斗分析初稿'
-                  weeklyPayload[resolveFieldId(weeklyFields.byName.get('Risk')!)] = '实验样本不足影响结论稳定性'
-                  weeklyPayload[resolveFieldId(weeklyFields.byName.get('Time_Budget_Min')!)] = 600
-                  weeklyPayload[resolveFieldId(weeklyFields.byName.get('KeyResults')!)] = krIds
-                  await weeklyTable.addRecord({ fields: weeklyPayload })
-
-                  const ideaPayload: Record<string, unknown> = {}
-                  if (ideasFields.primaryFieldId) {
-                    ideaPayload[ideasFields.primaryFieldId] = '探索优质UGC冷启动激励机制'
-                  }
-                  ideaPayload[resolveFieldId(ideasFields.byName.get('Idea_Title')!)] = '探索优质UGC冷启动激励机制'
-                  ideaPayload[resolveFieldId(ideasFields.byName.get('Est_Minutes')!)] = 120
-                  ideaPayload[resolveFieldId(ideasFields.byName.get('Status')!)] = selectValue('Status', 'Parking', ideasFields.optionMap)
-                  ideaPayload[resolveFieldId(ideasFields.byName.get('Notes')!)] = '等待结论后再评估是否转正'
-                  ideaPayload[resolveFieldId(ideasFields.byName.get('KeyResults')!)] = [krIds[2]]
-                  await ideasTable.addRecord({ fields: ideaPayload })
-
-                  message.success('Demo 数据已生成')
-                } catch (err) {
-                  console.error(err)
-                  message.error(`生成失败：${String(err)}`)
-                } finally {
-                  setSeeding(false)
-                }
-              }}>
+              <Button type="primary" loading={seeding} onClick={handleSeed} disabled={!isBitable}>
                 生成 Demo OKR 数据
               </Button>
               <Alert
@@ -248,6 +291,15 @@ function App() {
                 showIcon
                 message="注意：重复点击会创建多份演示数据。"
               />
+              <Progress percent={progress} status={seeding ? 'active' : progress === 100 ? 'success' : 'normal'} />
+              <Card size="small" title="执行日志">
+                <List
+                  size="small"
+                  dataSource={logLines}
+                  locale={{ emptyText: '暂无日志' }}
+                  renderItem={(item) => <List.Item>{item}</List.Item>}
+                />
+              </Card>
             </Space>
           </Card>
         ),
@@ -327,6 +379,22 @@ function App() {
       </div>
       <Divider />
       <Tabs items={tabs} />
+      <Modal
+        title="确认生成 Demo 数据"
+        open={confirmOpen}
+        onCancel={() => setConfirmOpen(false)}
+        onOk={runSeed}
+        okText="确认执行"
+        cancelText="取消"
+        confirmLoading={seeding}
+      >
+        <Text>将执行以下操作：</Text>
+        <List
+          size="small"
+          dataSource={pendingOps}
+          renderItem={(item) => <List.Item>{item}</List.Item>}
+        />
+      </Modal>
     </div>
   )
 }
