@@ -109,10 +109,19 @@ get_json_value() {
 get_table_id_by_name() {
   local json="$1"
   local name="$2"
-  "$PYTHON_BIN" - <<PY
+  local json_b64
+  json_b64=$(printf '%s' "$json" | base64)
+  "$PYTHON_BIN" - "$name" "$json_b64" <<'PY'
+import base64
 import json
-name = "${name}"
-data = json.loads("""${json}""")
+import sys
+
+name = sys.argv[1]
+raw = base64.b64decode(sys.argv[2]).decode("utf-8", "ignore")
+try:
+  data = json.loads(raw)
+except Exception:
+  sys.exit(0)
 items = data.get("data", {}).get("items", [])
 for item in items:
   if item.get("name") == name:
@@ -125,10 +134,19 @@ PY
 get_field_id_by_name() {
   local json="$1"
   local name="$2"
-  "$PYTHON_BIN" - <<PY
+  local json_b64
+  json_b64=$(printf '%s' "$json" | base64)
+  "$PYTHON_BIN" - "$name" "$json_b64" <<'PY'
+import base64
 import json
-name = "${name}"
-data = json.loads("""${json}""")
+import sys
+
+name = sys.argv[1]
+raw = base64.b64decode(sys.argv[2]).decode("utf-8", "ignore")
+try:
+  data = json.loads(raw)
+except Exception:
+  sys.exit(0)
 items = data.get("data", {}).get("items", [])
 for item in items:
   if item.get("field_name") == name:
@@ -179,6 +197,9 @@ TABLE_NAMES=(
   "KeyResults"
   "Actions"
   "Evidence"
+  "Plan"
+  "FocusBlocks"
+  "Scorecard"
   "WeeklyPlan"
   "Ideas"
   "TimeLog"
@@ -218,6 +239,7 @@ for table_name in "${TABLE_NAMES[@]}"; do
       '{"field_name":"Progress","type":99002}'
       '{"field_name":"Confidence","type":99004}'
       '{"field_name":"Due_Date","type":5}'
+      '{"field_name":"Current_Risk","type":3,"property":{"options":[{"name":"Green"},{"name":"Yellow"},{"name":"Red"}]}}'
     )
   elif [[ "$table_name" == "Actions" ]]; then
     fields=(
@@ -228,13 +250,49 @@ for table_name in "${TABLE_NAMES[@]}"; do
       '{"field_name":"Plan_Date","type":5}'
       '{"field_name":"Plan_Hours","type":2}'
       '{"field_name":"Guardrail_Flag","type":7}'
+      '{"field_name":"Risk_Tags","type":1}'
+      '{"field_name":"Drift_Flag","type":7}'
     )
   elif [[ "$table_name" == "Evidence" ]]; then
     fields=(
       '{"field_name":"Evidence_Title","type":1}'
       '{"field_name":"Evidence_Type","type":3,"property":{"options":[{"name":"Doc"},{"name":"Dashboard"},{"name":"PR"},{"name":"SQL"},{"name":"Experiment"},{"name":"Note"}]}}'
+      '{"field_name":"Evidence_Quality","type":3,"property":{"options":[{"name":"1"},{"name":"2"},{"name":"3"},{"name":"4"},{"name":"5"}]}}'
       '{"field_name":"Link","type":15}'
       '{"field_name":"Date","type":5}'
+      '{"field_name":"Impact_Hint","type":1}'
+    )
+  elif [[ "$table_name" == "Plan" ]]; then
+    fields=(
+      '{"field_name":"Plan_Title","type":1}'
+      '{"field_name":"Week_Start","type":5}'
+      '{"field_name":"Week_End","type":5}'
+      '{"field_name":"Expected_Deliverable","type":1}'
+      '{"field_name":"Expected_Progress_Delta","type":2}'
+      '{"field_name":"Risk_Level","type":3,"property":{"options":[{"name":"Green"},{"name":"Yellow"},{"name":"Red"}]}}'
+      '{"field_name":"Status","type":3,"property":{"options":[{"name":"NotStarted"},{"name":"OnTrack"},{"name":"AtRisk"},{"name":"Done"}]}}'
+      '{"field_name":"Owner","type":1}'
+    )
+  elif [[ "$table_name" == "FocusBlocks" ]]; then
+    fields=(
+      '{"field_name":"Block_Title","type":1}'
+      '{"field_name":"Start_Time","type":5}'
+      '{"field_name":"End_Time","type":5}'
+      '{"field_name":"Minutes","type":2}'
+      '{"field_name":"Goal","type":1}'
+      '{"field_name":"Block_Score","type":2}'
+    )
+  elif [[ "$table_name" == "Scorecard" ]]; then
+    fields=(
+      '{"field_name":"Week_Start","type":5}'
+      '{"field_name":"Week_End","type":5}'
+      '{"field_name":"Total_Score","type":2}'
+      '{"field_name":"Result_Score","type":2}'
+      '{"field_name":"Process_Score","type":2}'
+      '{"field_name":"Evidence_Score","type":2}'
+      '{"field_name":"Drift_Penalty","type":2}'
+      '{"field_name":"Top_Deductions","type":1}'
+      '{"field_name":"Recommended_Actions","type":1}'
     )
   elif [[ "$table_name" == "WeeklyPlan" ]]; then
     fields=(
@@ -310,6 +368,9 @@ OBJECTIVES_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_F
 KEYRESULTS_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["KeyResults"]["table_id"])')
 ACTIONS_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["Actions"]["table_id"])')
 EVIDENCE_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["Evidence"]["table_id"])')
+PLAN_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["Plan"]["table_id"])')
+FOCUS_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["FocusBlocks"]["table_id"])')
+SCORECARD_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["Scorecard"]["table_id"])')
 WEEKLY_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["WeeklyPlan"]["table_id"])')
 IDEAS_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["Ideas"]["table_id"])')
 TIMELOG_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["TimeLog"]["table_id"])')
@@ -319,6 +380,13 @@ link_fields=(
   "${ACTIONS_ID}|KeyResult|{\"field_name\":\"KeyResult\",\"type\":18,\"property\":{\"table_id\":\"${KEYRESULTS_ID}\",\"multiple\":false}}"
   "${EVIDENCE_ID}|KeyResult|{\"field_name\":\"KeyResult\",\"type\":18,\"property\":{\"table_id\":\"${KEYRESULTS_ID}\",\"multiple\":false}}"
   "${EVIDENCE_ID}|Action|{\"field_name\":\"Action\",\"type\":18,\"property\":{\"table_id\":\"${ACTIONS_ID}\",\"multiple\":false}}"
+  "${PLAN_ID}|KR|{\"field_name\":\"KR\",\"type\":18,\"property\":{\"table_id\":\"${KEYRESULTS_ID}\",\"multiple\":false}}"
+  "${ACTIONS_ID}|Plan|{\"field_name\":\"Plan\",\"type\":18,\"property\":{\"table_id\":\"${PLAN_ID}\",\"multiple\":false}}"
+  "${FOCUS_ID}|Action|{\"field_name\":\"Action\",\"type\":18,\"property\":{\"table_id\":\"${ACTIONS_ID}\",\"multiple\":false}}"
+  "${FOCUS_ID}|KR|{\"field_name\":\"KR\",\"type\":18,\"property\":{\"table_id\":\"${KEYRESULTS_ID}\",\"multiple\":false}}"
+  "${FOCUS_ID}|Plan|{\"field_name\":\"Plan\",\"type\":18,\"property\":{\"table_id\":\"${PLAN_ID}\",\"multiple\":false}}"
+  "${FOCUS_ID}|Evidence|{\"field_name\":\"Evidence\",\"type\":18,\"property\":{\"table_id\":\"${EVIDENCE_ID}\",\"multiple\":true}}"
+  "${EVIDENCE_ID}|FocusBlock|{\"field_name\":\"FocusBlock\",\"type\":18,\"property\":{\"table_id\":\"${FOCUS_ID}\",\"multiple\":false}}"
   "${WEEKLY_ID}|KeyResults|{\"field_name\":\"KeyResults\",\"type\":18,\"property\":{\"table_id\":\"${KEYRESULTS_ID}\",\"multiple\":true}}"
   "${IDEAS_ID}|KeyResults|{\"field_name\":\"KeyResults\",\"type\":18,\"property\":{\"table_id\":\"${KEYRESULTS_ID}\",\"multiple\":true}}"
   "${TIMELOG_ID}|Action|{\"field_name\":\"Action\",\"type\":18,\"property\":{\"table_id\":\"${ACTIONS_ID}\",\"multiple\":false}}"

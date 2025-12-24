@@ -23,7 +23,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
 
 const { Title, Text } = Typography
-const APP_VERSION = '0.1.3'
+const APP_VERSION = '0.1.4'
 
 type TableMeta = {
   id?: string
@@ -205,8 +205,10 @@ function App() {
       return 'generic'
     }
   })
-  const [activeTab, setActiveTab] = useState('home')
-  const [moreTab, setMoreTab] = useState<'demo' | 'debug'>('demo')
+  const [activeTab, setActiveTab] = useState('today')
+  const [moreTab, setMoreTab] = useState<
+    'home' | 'bank' | 'ideas' | 'guardrail' | 'scorecard' | 'demo' | 'debug'
+  >('home')
   const [homeLoading, setHomeLoading] = useState(false)
   const [homeError, setHomeError] = useState<string | null>(null)
   const [topKrs, setTopKrs] = useState<
@@ -231,10 +233,18 @@ function App() {
       planDate?: number
       krId?: string
       krTitle?: string
+      planId?: string
+      planTitle?: string
     }>
   >([])
   const [backlogOptions, setBacklogOptions] = useState<Array<{ value: string; label: string }>>([])
   const [selectedBacklogId, setSelectedBacklogId] = useState<string>()
+  const [planOptions, setPlanOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [planMeta, setPlanMeta] = useState<
+    Record<string, { title: string; weekStart?: number; weekEnd?: number }>
+  >({})
+  const [selectedPlanId, setSelectedPlanId] = useState<string>()
+  const [todayActionMeta, setTodayActionMeta] = useState<Record<string, { planId?: string; krId?: string }>>({})
   const [bankLoading, setBankLoading] = useState(false)
   const [bankError, setBankError] = useState<string | null>(null)
   const [bankKrs, setBankKrs] = useState<Array<{ value: string; label: string }>>([])
@@ -256,6 +266,8 @@ function App() {
   const [evidenceTitle, setEvidenceTitle] = useState('')
   const [evidenceType, setEvidenceType] = useState<string>('Note')
   const [evidenceLink, setEvidenceLink] = useState('')
+  const [evidenceFocusBlock, setEvidenceFocusBlock] = useState<string>()
+  const [focusOptions, setFocusOptions] = useState<Array<{ value: string; label: string }>>([])
   const [completeModalOpen, setCompleteModalOpen] = useState(false)
   const [completeActionId, setCompleteActionId] = useState<string>()
   const [completeActionTitle, setCompleteActionTitle] = useState<string>('')
@@ -283,6 +295,39 @@ function App() {
   const [guardrailMinutes, setGuardrailMinutes] = useState<number | null>(null)
   const [guardrailKrId, setGuardrailKrId] = useState<string>()
   const [guardrailModalOpen, setGuardrailModalOpen] = useState(false)
+  const [focusLoading, setFocusLoading] = useState(false)
+  const [focusError, setFocusError] = useState<string | null>(null)
+  const [focusList, setFocusList] = useState<
+    Array<{ id: string; title: string; minutes?: number; start?: number; actionTitle?: string }>
+  >([])
+  const [focusActionId, setFocusActionId] = useState<string>()
+  const [focusMinutes, setFocusMinutes] = useState<number | null>(null)
+  const [focusGoal, setFocusGoal] = useState('')
+  const [scoreLoading, setScoreLoading] = useState(false)
+  const [scoreError, setScoreError] = useState<string | null>(null)
+  const [scoreList, setScoreList] = useState<
+    Array<{
+      id: string
+      weekStart?: number
+      weekEnd?: number
+      total?: number
+      result?: number
+      process?: number
+      evidence?: number
+      drift?: number
+      deductions?: string
+      actions?: string
+    }>
+  >([])
+  const [scoreWeekStart, setScoreWeekStart] = useState('')
+  const [scoreWeekEnd, setScoreWeekEnd] = useState('')
+  const [scoreTotal, setScoreTotal] = useState<number | null>(null)
+  const [scoreResult, setScoreResult] = useState<number | null>(null)
+  const [scoreProcess, setScoreProcess] = useState<number | null>(null)
+  const [scoreEvidence, setScoreEvidence] = useState<number | null>(null)
+  const [scoreDrift, setScoreDrift] = useState<number | null>(null)
+  const [scoreDeductions, setScoreDeductions] = useState('')
+  const [scoreActions, setScoreActions] = useState('')
   const [copyModalOpen, setCopyModalOpen] = useState(false)
   const [copyPayload, setCopyPayload] = useState('')
   const [logEnabled, setLogEnabled] = useState(() => {
@@ -641,10 +686,61 @@ function App() {
   }
 
   useEffect(() => {
-    if (activeTab === 'home') {
-      void loadHomeData()
+    if (activeTab === 'today') {
+      void loadPlanData()
+      void loadTodayData()
+      void loadEvidenceData()
+      void loadDriftData()
+      void loadFocusBlocks()
     }
   }, [activeTab])
+
+  const fetchPlanMeta = async () => {
+    const planTable = await getTableByName('Plan')
+    const planFields = buildFieldIndex(await planTable.getFieldMetaList())
+    const planRecords = await planTable.getRecords({ pageSize: 5000 })
+
+    const titleId = resolveFieldId(planFields.byName.get('Plan_Title')!)
+    const startId = resolveFieldId(planFields.byName.get('Week_Start')!)
+    const endId = resolveFieldId(planFields.byName.get('Week_End')!)
+
+    const planList = asArray<{ recordId: string; fields: Record<string, unknown> }>(planRecords.records)
+    const meta: Record<string, { title: string; weekStart?: number; weekEnd?: number }> = {}
+    const options: Array<{ value: string; label: string }> = []
+
+    planList.forEach((record) => {
+      const title = toText(record.fields[titleId]) || '未命名计划'
+      const weekStart = record.fields[startId] as number | undefined
+      const weekEnd = record.fields[endId] as number | undefined
+      const startLabel = weekStart ? new Date(weekStart).toLocaleDateString('zh-CN') : ''
+      const endLabel = weekEnd ? new Date(weekEnd).toLocaleDateString('zh-CN') : ''
+      const dateLabel = startLabel || endLabel ? `${startLabel}${endLabel ? ` - ${endLabel}` : ''}` : ''
+      const label = dateLabel ? `${title} (${dateLabel})` : title
+      meta[record.recordId] = { title: label, weekStart, weekEnd }
+      options.push({ value: record.recordId, label })
+    })
+
+    options.sort((a, b) => {
+      const aStart = meta[a.value]?.weekStart ?? 0
+      const bStart = meta[b.value]?.weekStart ?? 0
+      return bStart - aStart
+    })
+
+    return { options, meta }
+  }
+
+  const loadPlanData = async () => {
+    if (!isBitable) return
+    try {
+      const { options, meta } = await fetchPlanMeta()
+      setPlanOptions(options)
+      setPlanMeta(meta)
+      setSelectedPlanId((prev) => prev ?? options[0]?.value)
+    } catch (err) {
+      console.error(err)
+      await reportError('Plan 数据加载失败', err)
+    }
+  }
 
   const loadTodayData = async () => {
     if (!isBitable) {
@@ -655,6 +751,10 @@ function App() {
     setTodayError(null)
     try {
       const actionTable = await getTableByName('Actions')
+      const planMetaResult = await fetchPlanMeta()
+      setPlanOptions(planMetaResult.options)
+      setPlanMeta(planMetaResult.meta)
+      setSelectedPlanId((prev) => prev ?? planMetaResult.options[0]?.value)
       const krTable = await getTableByName('KeyResults')
       const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
       const krFields = buildFieldIndex(await krTable.getFieldMetaList())
@@ -677,9 +777,20 @@ function App() {
       const minutesFieldId = resolveFieldId(actionFields.byName.get('Est_Minutes')!)
       const planDateFieldId = resolveFieldId(actionFields.byName.get('Plan_Date')!)
       const krLinkFieldId = resolveFieldId(actionFields.byName.get('KeyResult')!)
+      const planLinkFieldId = resolveFieldId(actionFields.byName.get('Plan')!)
 
-      const todayItems: Array<{ id: string; title: string; minutes?: number; planDate?: number; krId?: string; krTitle?: string }> = []
+      const todayItems: Array<{
+        id: string
+        title: string
+        minutes?: number
+        planDate?: number
+        krId?: string
+        krTitle?: string
+        planId?: string
+        planTitle?: string
+      }> = []
       const backlogItems: Array<{ value: string; label: string }> = []
+      const metaMap: Record<string, { planId?: string; krId?: string }> = {}
 
       const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
       actionList.forEach((record) => {
@@ -691,17 +802,23 @@ function App() {
         const krLinks = toLinkIds(record.fields[krLinkFieldId])
         const krId = krLinks.length > 0 ? krLinks[0] : undefined
         const krTitle = krId ? krMap.get(krId) : undefined
+        const planLinks = toLinkIds(record.fields[planLinkFieldId])
+        const planId = planLinks.length > 0 ? planLinks[0] : undefined
+        const planTitle = planId ? planMetaResult.meta[planId]?.title : undefined
+        metaMap[record.recordId] = { planId, krId }
 
         if (statusLabel === 'Today') {
-          todayItems.push({ id: record.recordId, title, minutes, planDate, krId, krTitle })
+          todayItems.push({ id: record.recordId, title, minutes, planDate, krId, krTitle, planId, planTitle })
         }
         if (statusLabel === 'Backlog') {
-          backlogItems.push({ value: record.recordId, label: title })
+          const label = planTitle ? `${title} · ${planTitle}` : title
+          backlogItems.push({ value: record.recordId, label })
         }
       })
 
       setTodayList(todayItems)
       setBacklogOptions(backlogItems)
+      setTodayActionMeta(metaMap)
     } catch (err) {
       console.error(err)
       setTodayError(`加载失败：${String(err)}`)
@@ -712,10 +829,20 @@ function App() {
   }
 
   useEffect(() => {
-    if (activeTab === 'today') {
-      void loadTodayData()
+    if (activeTab !== 'more') return
+    if (moreTab === 'home') {
+      void loadHomeData()
     }
-  }, [activeTab])
+    if (moreTab === 'bank') {
+      void loadBankData()
+    }
+    if (moreTab === 'ideas' || moreTab === 'guardrail') {
+      void loadIdeasData()
+    }
+    if (moreTab === 'scorecard') {
+      void loadScorecardData()
+    }
+  }, [activeTab, moreTab])
 
   const loadBankData = async () => {
     if (!isBitable) {
@@ -777,13 +904,11 @@ function App() {
     }
   }
 
-  useEffect(() => {
-    if (activeTab === 'bank') {
-      void loadBankData()
-    }
-  }, [activeTab])
-
-  const updateActionStatus = async (recordId: string, status: 'Today' | 'Backlog' | 'Done') => {
+  const updateActionStatus = async (
+    recordId: string,
+    status: 'Today' | 'Backlog' | 'Done',
+    planId?: string
+  ) => {
     const actionTable = await getTableByName('Actions')
     if (!actionTable.setRecord) {
       throw new Error('当前环境不支持更新记录')
@@ -791,7 +916,12 @@ function App() {
     const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
     const statusFieldId = resolveFieldId(actionFields.byName.get('Status')!)
     const statusValue = selectValue('Status', status, actionFields.optionMap)
-    await actionTable.setRecord(recordId, { fields: { [statusFieldId]: statusValue } })
+    const payload: Record<string, unknown> = { [statusFieldId]: statusValue }
+    if (planId) {
+      const planFieldId = resolveFieldId(actionFields.byName.get('Plan')!)
+      payload[planFieldId] = [planId]
+    }
+    await actionTable.setRecord(recordId, { fields: payload })
   }
 
   const createEvidence = async (params: {
@@ -800,6 +930,7 @@ function App() {
     link?: string
     actionId?: string
     krId?: string
+    focusBlockId?: string
   }) => {
     const evidenceTable = await getTableByName('Evidence')
     const evidenceFields = buildFieldIndex(await evidenceTable.getFieldMetaList())
@@ -823,6 +954,9 @@ function App() {
     if (params.actionId) {
       payload[resolveFieldId(evidenceFields.byName.get('Action')!)] = [params.actionId]
     }
+    if (params.focusBlockId) {
+      payload[resolveFieldId(evidenceFields.byName.get('FocusBlock')!)] = [params.focusBlockId]
+    }
     await evidenceTable.addRecord({ fields: payload })
   }
 
@@ -837,14 +971,17 @@ function App() {
       const evidenceTable = await getTableByName('Evidence')
       const actionTable = await getTableByName('Actions')
       const krTable = await getTableByName('KeyResults')
+      const focusTable = await getTableByName('FocusBlocks')
 
       const evidenceFields = buildFieldIndex(await evidenceTable.getFieldMetaList())
       const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
       const krFields = buildFieldIndex(await krTable.getFieldMetaList())
+      const focusFields = buildFieldIndex(await focusTable.getFieldMetaList())
 
       const krRecords = await krTable.getRecords({ pageSize: 5000 })
       const actionRecords = await actionTable.getRecords({ pageSize: 5000 })
       const evidenceRecords = await evidenceTable.getRecords({ pageSize: 5000 })
+      const focusRecords = await focusTable.getRecords({ pageSize: 5000 })
 
       const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
       const krMap = new Map<string, string>()
@@ -882,6 +1019,25 @@ function App() {
       setEvidenceActions(actionOptions)
       setEvidenceActionMeta(actionMap)
 
+      const focusTitleId = resolveFieldId(focusFields.byName.get('Block_Title')!)
+      const focusStartId = resolveFieldId(focusFields.byName.get('Start_Time')!)
+      const focusActionId = resolveFieldId(focusFields.byName.get('Action')!)
+      const focusList = asArray<{ recordId: string; fields: Record<string, unknown> }>(focusRecords.records)
+      const focusOptions = focusList
+        .map((record) => {
+          const title = toText(record.fields[focusTitleId]) || '深度时间块'
+          const start = record.fields[focusStartId] as number | undefined
+          const actionLinks = toLinkIds(record.fields[focusActionId])
+          const actionTitle = actionLinks.length > 0 ? actionMap[actionLinks[0]]?.title : undefined
+          const dateLabel = start ? new Date(start).toLocaleDateString('zh-CN') : ''
+          const label = `${title}${actionTitle ? ` · ${actionTitle}` : ''}${dateLabel ? ` · ${dateLabel}` : ''}`
+          return { id: record.recordId, label }
+        })
+        .sort((a, b) => (a.label < b.label ? 1 : -1))
+        .slice(0, 30)
+
+      setFocusOptions(focusOptions.map((item) => ({ value: item.id, label: item.label })))
+
       const evidenceTitleId = resolveFieldId(evidenceFields.byName.get('Evidence_Title')!)
       const evidenceTypeId = resolveFieldId(evidenceFields.byName.get('Evidence_Type')!)
       const evidenceDateId = resolveFieldId(evidenceFields.byName.get('Date')!)
@@ -912,12 +1068,6 @@ function App() {
       setEvidenceLoading(false)
     }
   }
-
-  useEffect(() => {
-    if (activeTab === 'evidence') {
-      void loadEvidenceData()
-    }
-  }, [activeTab])
 
   const loadDriftData = async () => {
     if (!isBitable) {
@@ -1003,11 +1153,66 @@ function App() {
     }
   }
 
-  useEffect(() => {
-    if (activeTab === 'drift') {
-      void loadDriftData()
+  const loadFocusBlocks = async () => {
+    if (!isBitable) {
+      setFocusError('当前为本地预览环境，请在飞书多维表格插件中使用。')
+      return
     }
-  }, [activeTab])
+    setFocusLoading(true)
+    setFocusError(null)
+    try {
+      const focusTable = await getTableByName('FocusBlocks')
+      const actionTable = await getTableByName('Actions')
+
+      const focusFields = buildFieldIndex(await focusTable.getFieldMetaList())
+      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
+
+      const focusRecords = await focusTable.getRecords({ pageSize: 5000 })
+      const actionRecords = await actionTable.getRecords({ pageSize: 5000 })
+
+      const actionTitleId = resolveFieldId(actionFields.byName.get('Action_Title')!)
+      const actionMap = new Map<string, string>()
+      const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
+      actionList.forEach((record) => {
+        const title = toText(record.fields[actionTitleId])
+        if (title) {
+          actionMap.set(record.recordId, title)
+        }
+      })
+
+      const focusTitleId = resolveFieldId(focusFields.byName.get('Block_Title')!)
+      const focusStartId = resolveFieldId(focusFields.byName.get('Start_Time')!)
+      const focusMinutesId = resolveFieldId(focusFields.byName.get('Minutes')!)
+      const focusActionId = resolveFieldId(focusFields.byName.get('Action')!)
+
+      const focusList = asArray<{ recordId: string; fields: Record<string, unknown> }>(focusRecords.records)
+      const items = focusList
+        .map((record) => {
+          const title = toText(record.fields[focusTitleId]) || '深度时间块'
+          const start = record.fields[focusStartId] as number | undefined
+          const minutes = record.fields[focusMinutesId] as number | undefined
+          const actionLinks = toLinkIds(record.fields[focusActionId])
+          const actionTitle = actionLinks.length > 0 ? actionMap.get(actionLinks[0]) : undefined
+          return { id: record.recordId, title, start, minutes, actionTitle }
+        })
+        .sort((a, b) => (b.start ?? 0) - (a.start ?? 0))
+        .slice(0, 20)
+
+      setFocusList(items)
+      setFocusOptions(
+        items.map((item) => ({
+          value: item.id,
+          label: `${item.title}${item.actionTitle ? ` · ${item.actionTitle}` : ''}`,
+        }))
+      )
+    } catch (err) {
+      console.error(err)
+      setFocusError(`加载失败：${String(err)}`)
+      await reportError('FocusBlocks 加载失败', err)
+    } finally {
+      setFocusLoading(false)
+    }
+  }
 
   const loadIdeasData = async () => {
     if (!isBitable) {
@@ -1062,11 +1267,499 @@ function App() {
     }
   }
 
-  useEffect(() => {
-    if (activeTab === 'ideas' || activeTab === 'guardrail') {
-      void loadIdeasData()
+  const loadScorecardData = async () => {
+    if (!isBitable) {
+      setScoreError('当前为本地预览环境，请在飞书多维表格插件中使用。')
+      return
     }
-  }, [activeTab])
+    setScoreLoading(true)
+    setScoreError(null)
+    try {
+      const scoreTable = await getTableByName('Scorecard')
+      const scoreFields = buildFieldIndex(await scoreTable.getFieldMetaList())
+      const scoreRecords = await scoreTable.getRecords({ pageSize: 5000 })
+
+      const weekStartId = resolveFieldId(scoreFields.byName.get('Week_Start')!)
+      const weekEndId = resolveFieldId(scoreFields.byName.get('Week_End')!)
+      const totalId = resolveFieldId(scoreFields.byName.get('Total_Score')!)
+      const resultId = resolveFieldId(scoreFields.byName.get('Result_Score')!)
+      const processId = resolveFieldId(scoreFields.byName.get('Process_Score')!)
+      const evidenceId = resolveFieldId(scoreFields.byName.get('Evidence_Score')!)
+      const driftId = resolveFieldId(scoreFields.byName.get('Drift_Penalty')!)
+      const deductionsId = resolveFieldId(scoreFields.byName.get('Top_Deductions')!)
+      const actionsId = resolveFieldId(scoreFields.byName.get('Recommended_Actions')!)
+
+      const scoreList = asArray<{ recordId: string; fields: Record<string, unknown> }>(scoreRecords.records)
+      const items = scoreList
+        .map((record) => ({
+          id: record.recordId,
+          weekStart: record.fields[weekStartId] as number | undefined,
+          weekEnd: record.fields[weekEndId] as number | undefined,
+          total: record.fields[totalId] as number | undefined,
+          result: record.fields[resultId] as number | undefined,
+          process: record.fields[processId] as number | undefined,
+          evidence: record.fields[evidenceId] as number | undefined,
+          drift: record.fields[driftId] as number | undefined,
+          deductions: toText(record.fields[deductionsId]),
+          actions: toText(record.fields[actionsId]),
+        }))
+        .sort((a, b) => (b.weekStart ?? 0) - (a.weekStart ?? 0))
+        .slice(0, 20)
+
+      setScoreList(items)
+    } catch (err) {
+      console.error(err)
+      setScoreError(`加载失败：${String(err)}`)
+      await reportError('Scorecard 加载失败', err)
+    } finally {
+      setScoreLoading(false)
+    }
+  }
+
+  const homeContent = (
+    <ErrorBoundary name="Home 总览" onError={handleBoundaryError}>
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        {homeError && <Alert type="error" showIcon message={homeError} />}
+        <Card>
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Space wrap>
+              <Tag color={driftKrsCount > 0 ? 'red' : 'green'}>偏航 KR：{driftKrsCount}</Tag>
+              <Tag color={unalignedActions > 0 ? 'orange' : 'green'}>未关联 Action：{unalignedActions}</Tag>
+            </Space>
+            <Space wrap>
+              <Button onClick={loadHomeData} loading={homeLoading}>
+                刷新
+              </Button>
+              <Button type="primary" onClick={() => setActiveTab('today')}>
+                今日纠偏
+              </Button>
+            </Space>
+          </Space>
+        </Card>
+        <Card title="Top KRs（按偏航优先）" loading={homeLoading}>
+          <List
+            dataSource={topKrs}
+            locale={{ emptyText: '暂无 KR' }}
+            renderItem={(kr) => {
+              const dueText = kr.due ? new Date(kr.due).toLocaleDateString('zh-CN') : '未设置'
+              const evidenceText = kr.daysSinceEvidence === null ? '无证据' : `${kr.daysSinceEvidence} 天`
+              return (
+                <List.Item>
+                  <Space direction="vertical">
+                    <Text strong>{kr.title}</Text>
+                    <Space wrap>
+                      <Tag color="blue">进度：{kr.progress ?? 0}%</Tag>
+                      <Tag color="gold">信心：{kr.confidence ?? '-'}</Tag>
+                      <Tag>距上次证据：{evidenceText}</Tag>
+                      <Tag>截止：{dueText}</Tag>
+                    </Space>
+                  </Space>
+                </List.Item>
+              )
+            }}
+          />
+        </Card>
+      </Space>
+    </ErrorBoundary>
+  )
+
+  const bankContent = (
+    <ErrorBoundary name="Action Bank" onError={handleBoundaryError}>
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        {bankError && <Alert type="error" showIcon message={bankError} />}
+        <Card>
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Space wrap>
+              <Button onClick={loadBankData} loading={bankLoading}>
+                刷新
+              </Button>
+              <Select
+                value={bankSelectedKr}
+                onChange={setBankSelectedKr}
+                options={bankKrs}
+                style={{ minWidth: 220 }}
+              />
+            </Space>
+          </Space>
+        </Card>
+        <Card title={`Backlog 动作（${bankActions.length}）`} loading={bankLoading}>
+          <List
+            dataSource={bankActions.filter((item) => bankSelectedKr === 'all' || item.krId === bankSelectedKr)}
+            locale={{ emptyText: '暂无 Backlog 动作' }}
+            renderItem={(item) => (
+              <List.Item
+                actions={[
+                    <Button
+                      key="pull"
+                      type="link"
+                      onClick={async () => {
+                        if (!selectedPlanId) {
+                          message.error('请先在 Today 选择本周 Plan')
+                          return
+                        }
+                        try {
+                          await updateActionStatus(item.id, 'Today', selectedPlanId)
+                          message.success('已拉取到 Today')
+                          await loadBankData()
+                        } catch (err) {
+                          console.error(err)
+                        message.error(`操作失败：${String(err)}`)
+                      }
+                    }}
+                  >
+                    拉取到 Today
+                  </Button>,
+                ]}
+              >
+                <Space direction="vertical">
+                  <Text strong>{item.title}</Text>
+                  <Space wrap>
+                    {item.krTitle && <Tag color="blue">{item.krTitle}</Tag>}
+                    {item.minutes && <Tag>预计 {item.minutes} 分钟</Tag>}
+                    {item.planDate && <Tag>计划 {new Date(item.planDate).toLocaleDateString('zh-CN')}</Tag>}
+                  </Space>
+                </Space>
+              </List.Item>
+            )}
+          />
+        </Card>
+      </Space>
+    </ErrorBoundary>
+  )
+
+  const ideasContent = (
+    <ErrorBoundary name="Parking Lot" onError={handleBoundaryError}>
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        {ideasError && <Alert type="error" showIcon message={ideasError} />}
+        <Card title="新增想法" loading={ideasLoading}>
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Input
+              placeholder="想法标题"
+              value={ideaTitle}
+              onChange={(e) => setIdeaTitle(e.target.value)}
+            />
+            <InputNumber
+              placeholder="预计耗时（分钟）"
+              min={1}
+              value={ideaMinutes ?? undefined}
+              onChange={(value) => setIdeaMinutes(typeof value === 'number' ? value : null)}
+            />
+            <Select
+              placeholder="关联 KR（可选）"
+              allowClear
+              options={ideasKrOptions}
+              value={ideaKrId}
+              onChange={(value) => setIdeaKrId(value)}
+            />
+            <Input.TextArea
+              rows={3}
+              placeholder="备注"
+              value={ideaNotes}
+              onChange={(e) => setIdeaNotes(e.target.value)}
+            />
+            <Space>
+              <Button onClick={loadIdeasData} loading={ideasLoading}>
+                刷新
+              </Button>
+              <Button
+                type="primary"
+                disabled={!ideaTitle || !ideaMinutes}
+                onClick={async () => {
+                  try {
+                    const ideasTable = await getTableByName('Ideas')
+                    const ideasFields = buildFieldIndex(await ideasTable.getFieldMetaList())
+                    const payload: Record<string, unknown> = {}
+                    if (ideasFields.primaryFieldId) {
+                      payload[ideasFields.primaryFieldId] = ideaTitle
+                    }
+                    payload[resolveFieldId(ideasFields.byName.get('Idea_Title')!)] = ideaTitle
+                    payload[resolveFieldId(ideasFields.byName.get('Est_Minutes')!)] = ideaMinutes ?? 0
+                    payload[resolveFieldId(ideasFields.byName.get('Status')!)] = selectValue(
+                      'Status',
+                      'Parking',
+                      ideasFields.optionMap
+                    )
+                    payload[resolveFieldId(ideasFields.byName.get('Notes')!)] = ideaNotes
+                    if (ideaKrId) {
+                      payload[resolveFieldId(ideasFields.byName.get('KeyResults')!)] = [ideaKrId]
+                    }
+                    await ideasTable.addRecord({ fields: payload })
+                    message.success('想法已加入 Parking')
+                    setIdeaTitle('')
+                    setIdeaMinutes(null)
+                    setIdeaNotes('')
+                    setIdeaKrId(undefined)
+                    await loadIdeasData()
+                  } catch (err) {
+                    console.error(err)
+                    message.error(`操作失败：${String(err)}`)
+                  }
+                }}
+              >
+                加入 Parking
+              </Button>
+            </Space>
+          </Space>
+        </Card>
+        <Card title={`Parking 列表（${ideasList.length}）`} loading={ideasLoading}>
+          <List
+            dataSource={ideasList}
+            locale={{ emptyText: '暂无想法' }}
+            renderItem={(item) => (
+              <List.Item>
+                <Space direction="vertical">
+                  <Text strong>{item.title}</Text>
+                  <Space wrap>
+                    {item.status && <Tag>{item.status}</Tag>}
+                    {item.minutes && <Tag>预计 {item.minutes} 分钟</Tag>}
+                    {item.krTitle && <Tag color="blue">{item.krTitle}</Tag>}
+                  </Space>
+                </Space>
+              </List.Item>
+            )}
+          />
+        </Card>
+      </Space>
+    </ErrorBoundary>
+  )
+
+  const guardrailContent = (
+    <ErrorBoundary name="Guardrail" onError={handleBoundaryError}>
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <Card title="新建 Action（护栏）">
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Input
+              placeholder="Action 标题"
+              value={guardrailTitle}
+              onChange={(e) => setGuardrailTitle(e.target.value)}
+            />
+            <InputNumber
+              placeholder="预计耗时（分钟）"
+              min={1}
+              value={guardrailMinutes ?? undefined}
+              onChange={(value) => setGuardrailMinutes(typeof value === 'number' ? value : null)}
+            />
+            <Select
+              placeholder="关联 KR（可选）"
+              allowClear
+              options={ideasKrOptions}
+              value={guardrailKrId}
+              onChange={(value) => setGuardrailKrId(value)}
+            />
+            <Space>
+              <Button onClick={loadIdeasData} loading={ideasLoading}>
+                刷新 KR
+              </Button>
+              <Button
+                type="primary"
+                disabled={!guardrailTitle || !guardrailMinutes}
+                onClick={async () => {
+                  if (!guardrailMinutes || !guardrailTitle) return
+                  if (guardrailMinutes > 30 && !guardrailKrId) {
+                    setGuardrailModalOpen(true)
+                    return
+                  }
+                  try {
+                    const actionTable = await getTableByName('Actions')
+                    const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
+                    const payload: Record<string, unknown> = {}
+                    if (actionFields.primaryFieldId) {
+                      payload[actionFields.primaryFieldId] = guardrailTitle
+                    }
+                    payload[resolveFieldId(actionFields.byName.get('Action_Title')!)] = guardrailTitle
+                    payload[resolveFieldId(actionFields.byName.get('Est_Minutes')!)] = guardrailMinutes
+                    payload[resolveFieldId(actionFields.byName.get('Status')!)] = selectValue(
+                      'Status',
+                      'Backlog',
+                      actionFields.optionMap
+                    )
+                    if (guardrailKrId) {
+                      payload[resolveFieldId(actionFields.byName.get('KeyResult')!)] = [guardrailKrId]
+                    }
+                    await actionTable.addRecord({ fields: payload })
+                    message.success('Action 已创建')
+                    setGuardrailTitle('')
+                    setGuardrailMinutes(null)
+                    setGuardrailKrId(undefined)
+                  } catch (err) {
+                    console.error(err)
+                    message.error(`操作失败：${String(err)}`)
+                  }
+                }}
+              >
+                创建 Action
+              </Button>
+            </Space>
+          </Space>
+        </Card>
+        <Alert
+          type="info"
+          showIcon
+          message="规则：预计耗时 > 30 分钟且未关联 KR 的任务，需要先进入 Parking Lot。"
+        />
+      </Space>
+    </ErrorBoundary>
+  )
+
+  const scorecardContent = (
+    <ErrorBoundary name="Scorecard" onError={handleBoundaryError}>
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        {scoreError && <Alert type="error" showIcon message={scoreError} />}
+        <Card title="新增周评分" loading={scoreLoading}>
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Space wrap>
+              <Input
+                type="date"
+                placeholder="周开始"
+                value={scoreWeekStart}
+                onChange={(e) => setScoreWeekStart(e.target.value)}
+              />
+              <Input
+                type="date"
+                placeholder="周结束"
+                value={scoreWeekEnd}
+                onChange={(e) => setScoreWeekEnd(e.target.value)}
+              />
+            </Space>
+            <Space wrap>
+              <InputNumber
+                placeholder="总分"
+                min={0}
+                max={100}
+                value={scoreTotal ?? undefined}
+                onChange={(value) => setScoreTotal(typeof value === 'number' ? value : null)}
+              />
+              <InputNumber
+                placeholder="结果分"
+                min={0}
+                max={100}
+                value={scoreResult ?? undefined}
+                onChange={(value) => setScoreResult(typeof value === 'number' ? value : null)}
+              />
+              <InputNumber
+                placeholder="过程分"
+                min={0}
+                max={100}
+                value={scoreProcess ?? undefined}
+                onChange={(value) => setScoreProcess(typeof value === 'number' ? value : null)}
+              />
+              <InputNumber
+                placeholder="证据分"
+                min={0}
+                max={100}
+                value={scoreEvidence ?? undefined}
+                onChange={(value) => setScoreEvidence(typeof value === 'number' ? value : null)}
+              />
+              <InputNumber
+                placeholder="偏航扣分"
+                min={0}
+                max={100}
+                value={scoreDrift ?? undefined}
+                onChange={(value) => setScoreDrift(typeof value === 'number' ? value : null)}
+              />
+            </Space>
+            <Input.TextArea
+              rows={3}
+              placeholder="扣分原因"
+              value={scoreDeductions}
+              onChange={(e) => setScoreDeductions(e.target.value)}
+            />
+            <Input.TextArea
+              rows={3}
+              placeholder="纠偏动作"
+              value={scoreActions}
+              onChange={(e) => setScoreActions(e.target.value)}
+            />
+            <Space>
+              <Button onClick={loadScorecardData} loading={scoreLoading}>
+                刷新
+              </Button>
+              <Button
+                type="primary"
+                disabled={!scoreWeekStart || !scoreWeekEnd}
+                onClick={async () => {
+                  const start = scoreWeekStart ? new Date(scoreWeekStart).getTime() : NaN
+                  const end = scoreWeekEnd ? new Date(scoreWeekEnd).getTime() : NaN
+                  if (Number.isNaN(start) || Number.isNaN(end)) {
+                    message.error('请填写正确的日期')
+                    return
+                  }
+                  try {
+                    const scoreTable = await getTableByName('Scorecard')
+                    const scoreFields = buildFieldIndex(await scoreTable.getFieldMetaList())
+                    const payload: Record<string, unknown> = {}
+                    if (scoreFields.primaryFieldId) {
+                      payload[scoreFields.primaryFieldId] = `Week ${scoreWeekStart}`
+                    }
+                    payload[resolveFieldId(scoreFields.byName.get('Week_Start')!)] = start
+                    payload[resolveFieldId(scoreFields.byName.get('Week_End')!)] = end
+                    if (scoreTotal !== null) {
+                      payload[resolveFieldId(scoreFields.byName.get('Total_Score')!)] = scoreTotal
+                    }
+                    if (scoreResult !== null) {
+                      payload[resolveFieldId(scoreFields.byName.get('Result_Score')!)] = scoreResult
+                    }
+                    if (scoreProcess !== null) {
+                      payload[resolveFieldId(scoreFields.byName.get('Process_Score')!)] = scoreProcess
+                    }
+                    if (scoreEvidence !== null) {
+                      payload[resolveFieldId(scoreFields.byName.get('Evidence_Score')!)] = scoreEvidence
+                    }
+                    if (scoreDrift !== null) {
+                      payload[resolveFieldId(scoreFields.byName.get('Drift_Penalty')!)] = scoreDrift
+                    }
+                    payload[resolveFieldId(scoreFields.byName.get('Top_Deductions')!)] = scoreDeductions
+                    payload[resolveFieldId(scoreFields.byName.get('Recommended_Actions')!)] = scoreActions
+                    await scoreTable.addRecord({ fields: payload })
+                    message.success('评分已保存')
+                    setScoreTotal(null)
+                    setScoreResult(null)
+                    setScoreProcess(null)
+                    setScoreEvidence(null)
+                    setScoreDrift(null)
+                    setScoreDeductions('')
+                    setScoreActions('')
+                    await loadScorecardData()
+                  } catch (err) {
+                    console.error(err)
+                    message.error(`操作失败：${String(err)}`)
+                  }
+                }}
+              >
+                保存评分
+              </Button>
+            </Space>
+          </Space>
+        </Card>
+        <Card title="最近周评分" loading={scoreLoading}>
+          <List
+            dataSource={scoreList}
+            locale={{ emptyText: '暂无评分' }}
+            renderItem={(item) => {
+              const start = item.weekStart ? new Date(item.weekStart).toLocaleDateString('zh-CN') : ''
+              const end = item.weekEnd ? new Date(item.weekEnd).toLocaleDateString('zh-CN') : ''
+              return (
+                <List.Item>
+                  <Space direction="vertical">
+                    <Text strong>{start && end ? `${start} - ${end}` : '未命名周'}</Text>
+                    <Space wrap>
+                      {item.total !== undefined && <Tag color="green">总分 {item.total}</Tag>}
+                      {item.result !== undefined && <Tag color="blue">结果 {item.result}</Tag>}
+                      {item.process !== undefined && <Tag color="gold">过程 {item.process}</Tag>}
+                      {item.evidence !== undefined && <Tag color="cyan">证据 {item.evidence}</Tag>}
+                      {item.drift !== undefined && <Tag color="red">偏航扣分 {item.drift}</Tag>}
+                    </Space>
+                    {item.deductions && <Text type="secondary">扣分：{item.deductions}</Text>}
+                    {item.actions && <Text type="secondary">纠偏：{item.actions}</Text>}
+                  </Space>
+                </List.Item>
+              )
+            }}
+          />
+        </Card>
+      </Space>
+    </ErrorBoundary>
+  )
 
   const demoContent = (
     <ErrorBoundary
@@ -1205,225 +1898,219 @@ function App() {
 
   const tabs = [
     {
-      key: 'home',
-      label: 'Home 总览',
-      children: (
-        <ErrorBoundary name="Home 总览" onError={handleBoundaryError}>
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          {homeError && <Alert type="error" showIcon message={homeError} />}
-          <Card>
-            <Space direction="vertical" size={12} style={{ width: '100%' }}>
-              <Space wrap>
-                <Tag color={driftKrsCount > 0 ? 'red' : 'green'}>偏航 KR：{driftKrsCount}</Tag>
-                <Tag color={unalignedActions > 0 ? 'orange' : 'green'}>未关联 Action：{unalignedActions}</Tag>
-              </Space>
-              <Space wrap>
-                <Button onClick={loadHomeData} loading={homeLoading}>
-                  刷新
-                </Button>
-                <Button type="primary" onClick={() => setActiveTab('drift')}>
-                  开始纠偏
-                </Button>
-              </Space>
-            </Space>
-          </Card>
-          <Card title="Top KRs（按偏航优先）" loading={homeLoading}>
-            <List
-              dataSource={topKrs}
-              locale={{ emptyText: '暂无 KR' }}
-              renderItem={(kr) => {
-                const dueText = kr.due ? new Date(kr.due).toLocaleDateString('zh-CN') : '未设置'
-                const evidenceText = kr.daysSinceEvidence === null ? '无证据' : `${kr.daysSinceEvidence} 天`
-                return (
-                  <List.Item>
-                    <Space direction="vertical">
-                      <Text strong>{kr.title}</Text>
-                      <Space wrap>
-                        <Tag color="blue">进度：{kr.progress ?? 0}%</Tag>
-                        <Tag color="gold">信心：{kr.confidence ?? '-'}</Tag>
-                        <Tag>距上次证据：{evidenceText}</Tag>
-                        <Tag>截止：{dueText}</Tag>
-                      </Space>
-                    </Space>
-                  </List.Item>
-                )
-              }}
-            />
-          </Card>
-          </Space>
-        </ErrorBoundary>
-      ),
-    },
-    {
       key: 'today',
       label: 'Today',
       children: (
         <ErrorBoundary name="Today" onError={handleBoundaryError}>
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          {todayError && <Alert type="error" showIcon message={todayError} />}
-          <Card>
-            <Space direction="vertical" size={12} style={{ width: '100%' }}>
-              <Space wrap>
-                <Button onClick={loadTodayData} loading={todayLoading}>
-                  刷新
-                </Button>
+            {todayError && <Alert type="error" showIcon message={todayError} />}
+            {evidenceError && <Alert type="error" showIcon message={evidenceError} />}
+            {driftError && <Alert type="error" showIcon message={driftError} />}
+            {focusError && <Alert type="error" showIcon message={focusError} />}
+            <Card title="今日计划">
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <Space wrap>
+                  <Button
+                    onClick={async () => {
+                      await loadPlanData()
+                      await loadTodayData()
+                      await loadEvidenceData()
+                      await loadDriftData()
+                      await loadFocusBlocks()
+                    }}
+                    loading={todayLoading || evidenceLoading || driftLoading || focusLoading}
+                  >
+                    刷新全部
+                  </Button>
+                </Space>
+                <Space wrap>
+                  <Select
+                    placeholder="选择本周 Plan"
+                    style={{ minWidth: 320 }}
+                    options={planOptions}
+                    value={selectedPlanId}
+                    onChange={setSelectedPlanId}
+                  />
+                </Space>
+                {selectedPlanId && planMeta[selectedPlanId]?.title && (
+                  <Text type="secondary">当前 Plan：{planMeta[selectedPlanId]?.title}</Text>
+                )}
+                <Space wrap>
+                  <Select
+                    placeholder="从 Backlog 选择 Action"
+                    style={{ minWidth: 260 }}
+                    options={backlogOptions}
+                    value={selectedBacklogId}
+                    onChange={setSelectedBacklogId}
+                  />
+                  <Button
+                    type="primary"
+                    disabled={!selectedBacklogId || !selectedPlanId}
+                    onClick={async () => {
+                      if (!selectedBacklogId) return
+                      if (!selectedPlanId) {
+                        message.error('请先选择本周 Plan')
+                        return
+                      }
+                      try {
+                        await updateActionStatus(selectedBacklogId, 'Today', selectedPlanId)
+                        message.success('已加入 Today')
+                        setSelectedBacklogId(undefined)
+                        await loadTodayData()
+                      } catch (err) {
+                        console.error(err)
+                        message.error(`操作失败：${String(err)}`)
+                      }
+                    }}
+                  >
+                    加入 Today
+                  </Button>
+                </Space>
+                <Text type="secondary">Daily Pull 必须绑定 Plan，确保本周推进。</Text>
               </Space>
-              <Space wrap>
-                <Select
-                  placeholder="从 Backlog 选择 Action"
-                  style={{ minWidth: 260 }}
-                  options={backlogOptions}
-                  value={selectedBacklogId}
-                  onChange={setSelectedBacklogId}
-                />
+            </Card>
+            <Card title={`今日任务（${todayList.length}）`} loading={todayLoading}>
+              <List
+                dataSource={todayList}
+                locale={{ emptyText: '暂无 Today 任务' }}
+                renderItem={(item) => (
+                  <List.Item
+                    actions={[
+                      <Button
+                        key="done"
+                        type="link"
+                        onClick={() => {
+                          setCompleteActionId(item.id)
+                          setCompleteActionTitle(item.title)
+                          setCompleteActionKrId(item.krId)
+                          setCompleteEvidenceTitle('')
+                          setCompleteEvidenceLink('')
+                          setCompleteFailureReason('')
+                          setCompleteEvidenceType(evidenceTypeOptions[0]?.value ?? 'Note')
+                          setCompleteModalOpen(true)
+                        }}
+                      >
+                        标记完成
+                      </Button>,
+                      <Button
+                        key="backlog"
+                        type="link"
+                        onClick={async () => {
+                          try {
+                            await updateActionStatus(item.id, 'Backlog')
+                            message.info('已移回 Backlog')
+                            await loadTodayData()
+                          } catch (err) {
+                            console.error(err)
+                            message.error(`操作失败：${String(err)}`)
+                          }
+                        }}
+                      >
+                        移回 Backlog
+                      </Button>,
+                    ]}
+                  >
+                  <Space direction="vertical">
+                    <Text strong>{item.title}</Text>
+                    <Space wrap>
+                      {item.krTitle && <Tag color="blue">{item.krTitle}</Tag>}
+                      {item.planTitle && <Tag color="cyan">{item.planTitle}</Tag>}
+                      {item.minutes && <Tag>预计 {item.minutes} 分钟</Tag>}
+                      {item.planDate && <Tag>计划 {new Date(item.planDate).toLocaleDateString('zh-CN')}</Tag>}
+                    </Space>
+                  </Space>
+                </List.Item>
+              )}
+            />
+          </Card>
+          <Card title="记录深度时间块" loading={focusLoading}>
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Select
+                placeholder="选择 Today Action"
+                options={todayList.map((item) => ({ value: item.id, label: item.title }))}
+                value={focusActionId}
+                onChange={setFocusActionId}
+              />
+              <InputNumber
+                placeholder="预计时长（分钟）"
+                min={10}
+                value={focusMinutes ?? undefined}
+                onChange={(value) => setFocusMinutes(typeof value === 'number' ? value : null)}
+              />
+              <Input.TextArea
+                rows={2}
+                placeholder="本块目标产出"
+                value={focusGoal}
+                onChange={(e) => setFocusGoal(e.target.value)}
+              />
+              <Space>
                 <Button
                   type="primary"
-                  disabled={!selectedBacklogId}
+                  disabled={!focusActionId || !focusMinutes}
                   onClick={async () => {
-                    if (!selectedBacklogId) return
+                    if (!focusActionId || !focusMinutes) return
                     try {
-                      await updateActionStatus(selectedBacklogId, 'Today')
-                      message.success('已加入 Today')
-                      setSelectedBacklogId(undefined)
-                      await loadTodayData()
+                      const focusTable = await getTableByName('FocusBlocks')
+                      const focusFields = buildFieldIndex(await focusTable.getFieldMetaList())
+                      const actionMeta = todayActionMeta[focusActionId]
+                      const actionTitle = todayList.find((item) => item.id === focusActionId)?.title ?? '深度时间块'
+                      const now = Date.now()
+                      const payload: Record<string, unknown> = {}
+                      if (focusFields.primaryFieldId) {
+                        payload[focusFields.primaryFieldId] = `${actionTitle} 深度块`
+                      }
+                      payload[resolveFieldId(focusFields.byName.get('Block_Title')!)] =
+                        focusGoal || `${actionTitle} 深度块`
+                      payload[resolveFieldId(focusFields.byName.get('Start_Time')!)] = now
+                      payload[resolveFieldId(focusFields.byName.get('End_Time')!)] =
+                        now + focusMinutes * 60 * 1000
+                      payload[resolveFieldId(focusFields.byName.get('Minutes')!)] = focusMinutes
+                      payload[resolveFieldId(focusFields.byName.get('Goal')!)] = focusGoal
+                      payload[resolveFieldId(focusFields.byName.get('Action')!)] = [focusActionId]
+                      if (actionMeta?.krId) {
+                        payload[resolveFieldId(focusFields.byName.get('KR')!)] = [actionMeta.krId]
+                      }
+                      if (actionMeta?.planId) {
+                        payload[resolveFieldId(focusFields.byName.get('Plan')!)] = [actionMeta.planId]
+                      }
+                      await focusTable.addRecord({ fields: payload })
+                      message.success('深度时间块已记录')
+                      setFocusActionId(undefined)
+                      setFocusMinutes(null)
+                      setFocusGoal('')
+                      await loadFocusBlocks()
                     } catch (err) {
                       console.error(err)
                       message.error(`操作失败：${String(err)}`)
                     }
                   }}
                 >
-                  加入 Today
+                  记录 Focus Block
                 </Button>
-              </Space>
-            </Space>
-          </Card>
-          <Card title={`今日任务（${todayList.length}）`} loading={todayLoading}>
-            <List
-              dataSource={todayList}
-              locale={{ emptyText: '暂无 Today 任务' }}
-              renderItem={(item) => (
-                <List.Item
-                  actions={[
-                    <Button
-                      key="done"
-                      type="link"
-                      onClick={() => {
-                        setCompleteActionId(item.id)
-                        setCompleteActionTitle(item.title)
-                        setCompleteActionKrId(item.krId)
-                        setCompleteEvidenceTitle('')
-                        setCompleteEvidenceLink('')
-                        setCompleteFailureReason('')
-                        setCompleteEvidenceType(evidenceTypeOptions[0]?.value ?? 'Note')
-                        setCompleteModalOpen(true)
-                      }}
-                    >
-                      标记完成
-                    </Button>,
-                    <Button
-                      key="backlog"
-                      type="link"
-                      onClick={async () => {
-                        try {
-                          await updateActionStatus(item.id, 'Backlog')
-                          message.info('已移回 Backlog')
-                          await loadTodayData()
-                        } catch (err) {
-                          console.error(err)
-                          message.error(`操作失败：${String(err)}`)
-                        }
-                      }}
-                    >
-                      移回 Backlog
-                    </Button>,
-                  ]}
-                >
-                  <Space direction="vertical">
-                    <Text strong>{item.title}</Text>
-                    <Space wrap>
-                      {item.krTitle && <Tag color="blue">{item.krTitle}</Tag>}
-                      {item.minutes && <Tag>预计 {item.minutes} 分钟</Tag>}
-                      {item.planDate && <Tag>计划 {new Date(item.planDate).toLocaleDateString('zh-CN')}</Tag>}
-                    </Space>
-                  </Space>
-                </List.Item>
-              )}
-            />
-          </Card>
-          </Space>
-        </ErrorBoundary>
-      ),
-    },
-    {
-      key: 'bank',
-      label: 'Action Bank',
-      children: (
-        <ErrorBoundary name="Action Bank" onError={handleBoundaryError}>
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          {bankError && <Alert type="error" showIcon message={bankError} />}
-          <Card>
-            <Space direction="vertical" size={12} style={{ width: '100%' }}>
-              <Space wrap>
-                <Button onClick={loadBankData} loading={bankLoading}>
+                <Button onClick={loadFocusBlocks} loading={focusLoading}>
                   刷新
                 </Button>
-                <Select
-                  value={bankSelectedKr}
-                  onChange={setBankSelectedKr}
-                  options={bankKrs}
-                  style={{ minWidth: 220 }}
-                />
               </Space>
             </Space>
           </Card>
-          <Card title={`Backlog 动作（${bankActions.length}）`} loading={bankLoading}>
+          <Card title="最近 Focus Blocks" loading={focusLoading}>
             <List
-              dataSource={bankActions.filter((item) => bankSelectedKr === 'all' || item.krId === bankSelectedKr)}
-              locale={{ emptyText: '暂无 Backlog 动作' }}
+              dataSource={focusList}
+              locale={{ emptyText: '暂无记录' }}
               renderItem={(item) => (
-                <List.Item
-                  actions={[
-                    <Button
-                      key="pull"
-                      type="link"
-                      onClick={async () => {
-                        try {
-                          await updateActionStatus(item.id, 'Today')
-                          message.success('已拉取到 Today')
-                          await loadBankData()
-                        } catch (err) {
-                          console.error(err)
-                          message.error(`操作失败：${String(err)}`)
-                        }
-                      }}
-                    >
-                      拉取到 Today
-                    </Button>,
-                  ]}
-                >
+                <List.Item>
                   <Space direction="vertical">
                     <Text strong>{item.title}</Text>
                     <Space wrap>
-                      {item.krTitle && <Tag color="blue">{item.krTitle}</Tag>}
-                      {item.minutes && <Tag>预计 {item.minutes} 分钟</Tag>}
-                      {item.planDate && <Tag>计划 {new Date(item.planDate).toLocaleDateString('zh-CN')}</Tag>}
+                      {item.actionTitle && <Tag color="blue">{item.actionTitle}</Tag>}
+                      {item.minutes && <Tag>{item.minutes} 分钟</Tag>}
+                      {item.start && <Tag>{new Date(item.start).toLocaleString('zh-CN')}</Tag>}
                     </Space>
                   </Space>
                 </List.Item>
               )}
             />
           </Card>
-          </Space>
-        </ErrorBoundary>
-      ),
-    },
-    {
-      key: 'evidence',
-      label: 'Evidence',
-      children: (
-        <ErrorBoundary name="Evidence" onError={handleBoundaryError}>
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          {evidenceError && <Alert type="error" showIcon message={evidenceError} />}
           <Card title="新增证据" loading={evidenceLoading}>
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
               <Select
@@ -1432,32 +2119,39 @@ function App() {
                 value={selectedEvidenceAction}
                 onChange={setSelectedEvidenceAction}
               />
+              <Select
+                placeholder="关联 Focus Block（可选）"
+                options={focusOptions}
+                allowClear
+                value={evidenceFocusBlock}
+                onChange={setEvidenceFocusBlock}
+              />
               <Input
                 placeholder="证据标题"
                 value={evidenceTitle}
                 onChange={(e) => setEvidenceTitle(e.target.value)}
               />
-              <Select
-                placeholder="证据类型"
-                options={evidenceTypeOptions}
-                value={evidenceType}
-                onChange={setEvidenceType}
-              />
-              <Input
-                placeholder="链接（可选）"
-                value={evidenceLink}
-                onChange={(e) => setEvidenceLink(e.target.value)}
-              />
-              <Space>
-                <Button onClick={loadEvidenceData} loading={evidenceLoading}>
-                  刷新
-                </Button>
-                <Button
-                  type="primary"
-                  disabled={!selectedEvidenceAction || !evidenceTitle}
-                  onClick={async () => {
-                    if (!selectedEvidenceAction) return
-                    const meta = evidenceActionMeta[selectedEvidenceAction]
+                <Select
+                  placeholder="证据类型"
+                  options={evidenceTypeOptions}
+                  value={evidenceType}
+                  onChange={setEvidenceType}
+                />
+                <Input
+                  placeholder="链接（可选）"
+                  value={evidenceLink}
+                  onChange={(e) => setEvidenceLink(e.target.value)}
+                />
+                <Space>
+                  <Button onClick={loadEvidenceData} loading={evidenceLoading}>
+                    刷新
+                  </Button>
+                  <Button
+                    type="primary"
+                    disabled={!selectedEvidenceAction || !evidenceTitle}
+                    onClick={async () => {
+                      if (!selectedEvidenceAction) return
+                      const meta = evidenceActionMeta[selectedEvidenceAction]
                     try {
                       await createEvidence({
                         title: evidenceTitle,
@@ -1465,277 +2159,88 @@ function App() {
                         link: evidenceLink || undefined,
                         actionId: selectedEvidenceAction,
                         krId: meta?.krId,
+                        focusBlockId: evidenceFocusBlock,
                       })
                       message.success('证据已添加')
                       setEvidenceTitle('')
                       setEvidenceLink('')
+                      setEvidenceFocusBlock(undefined)
                       await loadEvidenceData()
                     } catch (err) {
                       console.error(err)
                       message.error(`操作失败：${String(err)}`)
                     }
-                  }}
-                >
-                  添加证据
-                </Button>
+                    }}
+                  >
+                    添加证据
+                  </Button>
+                </Space>
               </Space>
-            </Space>
-          </Card>
-          <Card title="最近证据" loading={evidenceLoading}>
-            <List
-              dataSource={evidenceList}
-              locale={{ emptyText: '暂无证据' }}
-              renderItem={(item) => (
-                <List.Item>
-                  <Space direction="vertical">
-                    <Text strong>{item.title}</Text>
-                    <Space wrap>
-                      {item.type && <Tag color="blue">{item.type}</Tag>}
-                      {item.krTitle && <Tag>{item.krTitle}</Tag>}
-                      {item.actionTitle && <Tag color="gold">{item.actionTitle}</Tag>}
-                      {item.date && <Tag>{new Date(item.date).toLocaleDateString('zh-CN')}</Tag>}
-                    </Space>
-                  </Space>
-                </List.Item>
-              )}
-            />
-          </Card>
-          </Space>
-        </ErrorBoundary>
-      ),
-    },
-    {
-      key: 'drift',
-      label: 'Drift',
-      children: (
-        <ErrorBoundary name="Drift" onError={handleBoundaryError}>
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          {driftError && <Alert type="error" showIcon message={driftError} />}
-          <Card>
-            <Space direction="vertical" size={12} style={{ width: '100%' }}>
-              <Space wrap>
-                <Tag color={driftKrsCount > 0 ? 'red' : 'green'}>偏航 KR：{driftKrsCount}</Tag>
-                <Tag color={unalignedActions > 0 ? 'orange' : 'green'}>未关联 Action：{unalignedActions}</Tag>
-              </Space>
-              <Space wrap>
-                <Button onClick={loadDriftData} loading={driftLoading}>
-                  刷新
-                </Button>
-              </Space>
-            </Space>
-          </Card>
-          <Card title="偏航 KR 列表" loading={driftLoading}>
-            <List
-              dataSource={driftList}
-              locale={{ emptyText: '暂无偏航 KR' }}
-              renderItem={(item) => {
-                const evidenceText =
-                  item.daysSinceEvidence === null ? '无证据' : `${item.daysSinceEvidence} 天`
-                return (
+            </Card>
+            <Card title="最近证据" loading={evidenceLoading}>
+              <List
+                dataSource={evidenceList}
+                locale={{ emptyText: '暂无证据' }}
+                renderItem={(item) => (
                   <List.Item>
                     <Space direction="vertical">
                       <Text strong>{item.title}</Text>
                       <Space wrap>
-                        <Tag color="blue">进度：{item.progress ?? 0}%</Tag>
-                        <Tag color="gold">信心：{item.confidence ?? '-'}</Tag>
-                        <Tag>距上次证据：{evidenceText}</Tag>
+                        {item.type && <Tag color="blue">{item.type}</Tag>}
+                        {item.krTitle && <Tag>{item.krTitle}</Tag>}
+                        {item.actionTitle && <Tag color="gold">{item.actionTitle}</Tag>}
+                        {item.date && <Tag>{new Date(item.date).toLocaleDateString('zh-CN')}</Tag>}
                       </Space>
                     </Space>
                   </List.Item>
-                )
-              }}
-            />
-          </Card>
-          <Card title="纠偏 Playbook">
-            <List
-              dataSource={[
-                '选择 1 个 KR 的本周交付',
-                '拉取 1 个 30 分钟最小动作',
-                '产出 1 个证据（哪怕是 1 页 memo）',
-              ]}
-              renderItem={(item) => <List.Item>{item}</List.Item>}
-            />
-          </Card>
-          </Space>
-        </ErrorBoundary>
-      ),
-    },
-    {
-      key: 'ideas',
-      label: 'Parking Lot',
-      children: (
-        <ErrorBoundary name="Parking Lot" onError={handleBoundaryError}>
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          {ideasError && <Alert type="error" showIcon message={ideasError} />}
-          <Card title="新增想法" loading={ideasLoading}>
-            <Space direction="vertical" size={12} style={{ width: '100%' }}>
-              <Input
-                placeholder="想法标题"
-                value={ideaTitle}
-                onChange={(e) => setIdeaTitle(e.target.value)}
+                )}
               />
-              <InputNumber
-                placeholder="预计耗时（分钟）"
-                min={1}
-                value={ideaMinutes ?? undefined}
-                onChange={(value) => setIdeaMinutes(typeof value === 'number' ? value : null)}
-              />
-              <Select
-                placeholder="关联 KR（可选）"
-                allowClear
-                options={ideasKrOptions}
-                value={ideaKrId}
-                onChange={(value) => setIdeaKrId(value)}
-              />
-              <Input.TextArea
-                rows={3}
-                placeholder="备注"
-                value={ideaNotes}
-                onChange={(e) => setIdeaNotes(e.target.value)}
-              />
-              <Space>
-                <Button onClick={loadIdeasData} loading={ideasLoading}>
-                  刷新
-                </Button>
-                <Button
-                  type="primary"
-                  disabled={!ideaTitle || !ideaMinutes}
-                  onClick={async () => {
-                    try {
-                      const ideasTable = await getTableByName('Ideas')
-                      const ideasFields = buildFieldIndex(await ideasTable.getFieldMetaList())
-                      const payload: Record<string, unknown> = {}
-                      if (ideasFields.primaryFieldId) {
-                        payload[ideasFields.primaryFieldId] = ideaTitle
-                      }
-                      payload[resolveFieldId(ideasFields.byName.get('Idea_Title')!)] = ideaTitle
-                      payload[resolveFieldId(ideasFields.byName.get('Est_Minutes')!)] = ideaMinutes ?? 0
-                      payload[resolveFieldId(ideasFields.byName.get('Status')!)] = selectValue(
-                        'Status',
-                        'Parking',
-                        ideasFields.optionMap
-                      )
-                      payload[resolveFieldId(ideasFields.byName.get('Notes')!)] = ideaNotes
-                      if (ideaKrId) {
-                        payload[resolveFieldId(ideasFields.byName.get('KeyResults')!)] = [ideaKrId]
-                      }
-                      await ideasTable.addRecord({ fields: payload })
-                      message.success('想法已加入 Parking')
-                      setIdeaTitle('')
-                      setIdeaMinutes(null)
-                      setIdeaNotes('')
-                      setIdeaKrId(undefined)
-                      await loadIdeasData()
-                    } catch (err) {
-                      console.error(err)
-                      message.error(`操作失败：${String(err)}`)
-                    }
-                  }}
-                >
-                  加入 Parking
-                </Button>
+            </Card>
+            <Card>
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <Space wrap>
+                  <Tag color={driftKrsCount > 0 ? 'red' : 'green'}>偏航 KR：{driftKrsCount}</Tag>
+                  <Tag color={unalignedActions > 0 ? 'orange' : 'green'}>未关联 Action：{unalignedActions}</Tag>
+                </Space>
+                <Space wrap>
+                  <Button onClick={loadDriftData} loading={driftLoading}>
+                    刷新
+                  </Button>
+                </Space>
               </Space>
-            </Space>
-          </Card>
-          <Card title={`Parking 列表（${ideasList.length}）`} loading={ideasLoading}>
-            <List
-              dataSource={ideasList}
-              locale={{ emptyText: '暂无想法' }}
-              renderItem={(item) => (
-                <List.Item>
-                  <Space direction="vertical">
-                    <Text strong>{item.title}</Text>
-                    <Space wrap>
-                      {item.status && <Tag>{item.status}</Tag>}
-                      {item.minutes && <Tag>预计 {item.minutes} 分钟</Tag>}
-                      {item.krTitle && <Tag color="blue">{item.krTitle}</Tag>}
-                    </Space>
-                  </Space>
-                </List.Item>
-              )}
-            />
-          </Card>
-          </Space>
-        </ErrorBoundary>
-      ),
-    },
-    {
-      key: 'guardrail',
-      label: 'Guardrail',
-      children: (
-        <ErrorBoundary name="Guardrail" onError={handleBoundaryError}>
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <Card title="新建 Action（护栏）">
-            <Space direction="vertical" size={12} style={{ width: '100%' }}>
-              <Input
-                placeholder="Action 标题"
-                value={guardrailTitle}
-                onChange={(e) => setGuardrailTitle(e.target.value)}
+            </Card>
+            <Card title="偏航 KR 列表" loading={driftLoading}>
+              <List
+                dataSource={driftList}
+                locale={{ emptyText: '暂无偏航 KR' }}
+                renderItem={(item) => {
+                  const evidenceText =
+                    item.daysSinceEvidence === null ? '无证据' : `${item.daysSinceEvidence} 天`
+                  return (
+                    <List.Item>
+                      <Space direction="vertical">
+                        <Text strong>{item.title}</Text>
+                        <Space wrap>
+                          <Tag color="blue">进度：{item.progress ?? 0}%</Tag>
+                          <Tag color="gold">信心：{item.confidence ?? '-'}</Tag>
+                          <Tag>距上次证据：{evidenceText}</Tag>
+                        </Space>
+                      </Space>
+                    </List.Item>
+                  )
+                }}
               />
-              <InputNumber
-                placeholder="预计耗时（分钟）"
-                min={1}
-                value={guardrailMinutes ?? undefined}
-                onChange={(value) => setGuardrailMinutes(typeof value === 'number' ? value : null)}
+            </Card>
+            <Card title="纠偏 Playbook">
+              <List
+                dataSource={[
+                  '选择 1 个 KR 的本周交付',
+                  '拉取 1 个 30 分钟最小动作',
+                  '产出 1 个证据（哪怕是 1 页 memo）',
+                ]}
+                renderItem={(item) => <List.Item>{item}</List.Item>}
               />
-              <Select
-                placeholder="关联 KR（可选）"
-                allowClear
-                options={ideasKrOptions}
-                value={guardrailKrId}
-                onChange={(value) => setGuardrailKrId(value)}
-              />
-              <Space>
-                <Button onClick={loadIdeasData} loading={ideasLoading}>
-                  刷新 KR
-                </Button>
-                <Button
-                  type="primary"
-                  disabled={!guardrailTitle || !guardrailMinutes}
-                  onClick={async () => {
-                    if (!guardrailMinutes || !guardrailTitle) return
-                    if (guardrailMinutes > 30 && !guardrailKrId) {
-                      setGuardrailModalOpen(true)
-                      return
-                    }
-                    try {
-                      const actionTable = await getTableByName('Actions')
-                      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
-                      const payload: Record<string, unknown> = {}
-                      if (actionFields.primaryFieldId) {
-                        payload[actionFields.primaryFieldId] = guardrailTitle
-                      }
-                      payload[resolveFieldId(actionFields.byName.get('Action_Title')!)] = guardrailTitle
-                      payload[resolveFieldId(actionFields.byName.get('Est_Minutes')!)] = guardrailMinutes
-                      payload[resolveFieldId(actionFields.byName.get('Status')!)] = selectValue(
-                        'Status',
-                        'Backlog',
-                        actionFields.optionMap
-                      )
-                      if (guardrailKrId) {
-                        payload[resolveFieldId(actionFields.byName.get('KeyResult')!)] = [guardrailKrId]
-                      }
-                      await actionTable.addRecord({ fields: payload })
-                      message.success('Action 已创建')
-                      setGuardrailTitle('')
-                      setGuardrailMinutes(null)
-                      setGuardrailKrId(undefined)
-                    } catch (err) {
-                      console.error(err)
-                      message.error(`操作失败：${String(err)}`)
-                    }
-                  }}
-                >
-                  创建 Action
-                </Button>
-              </Space>
-            </Space>
-          </Card>
-          <Alert
-            type="info"
-            showIcon
-            message="规则：预计耗时 > 30 分钟且未关联 KR 的任务，需要先进入 Parking Lot。"
-          />
+            </Card>
           </Space>
         </ErrorBoundary>
       ),
@@ -1747,13 +2252,26 @@ function App() {
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <Segmented
             options={[
+              { label: '总览', value: 'home' },
+              { label: 'Action Bank', value: 'bank' },
+              { label: 'Parking', value: 'ideas' },
+              { label: 'Guardrail', value: 'guardrail' },
+              { label: 'Scorecard', value: 'scorecard' },
               { label: 'Demo 数据', value: 'demo' },
               { label: '诊断日志', value: 'debug' },
             ]}
             value={moreTab}
-            onChange={(value) => setMoreTab(value as 'demo' | 'debug')}
+            onChange={(value) =>
+              setMoreTab(value as 'home' | 'bank' | 'ideas' | 'guardrail' | 'scorecard' | 'demo' | 'debug')
+            }
           />
-          {moreTab === 'demo' ? demoContent : debugContent}
+          {moreTab === 'home' && homeContent}
+          {moreTab === 'bank' && bankContent}
+          {moreTab === 'ideas' && ideasContent}
+          {moreTab === 'guardrail' && guardrailContent}
+          {moreTab === 'scorecard' && scorecardContent}
+          {moreTab === 'demo' && demoContent}
+          {moreTab === 'debug' && debugContent}
         </Space>
       ),
     },
