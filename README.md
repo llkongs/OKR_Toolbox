@@ -5,14 +5,8 @@
 ## 插件逻辑（MVP）
 
 Tab 结构：
-- Demo 数据：一键生成 OKR 演示数据（O1 + 3 KR + Actions/Evidence/WeeklyPlan/Ideas）
-- Home 总览：Top KRs + Drift 提示 + “开始纠偏”
-- Today：每日拉取 1-2 个 MIT
-- Action Bank：按 KR 过滤动作库，快速拉取到 Today
-- Evidence：完成 Action 必须添加证据或失败原因
-- Drift：连续无证据天数、未关联 KR 的 Action 数
-- Parking Lot：新想法收集 + 探索预算提示
-- Guardrail：新建 Action > 30 分钟且无 KR 时提示转 Parking
+- Today：Plan 选择 + MIT 拉取 + Focus Block + Evidence + Drift 提醒
+- 更多：Home 总览 / Action Bank / Parking / Guardrail / Scorecard / Demo / Debug
 
 ## 初始化
 
