@@ -143,6 +143,20 @@ function resolveSelectLabel(
   return ''
 }
 
+function toText(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) return value.map(toText).join('')
+  if (typeof value === 'object') {
+    const obj = value as { text?: string; name?: string }
+    if (obj.text) return String(obj.text)
+    if (obj.name) return String(obj.name)
+    return JSON.stringify(value)
+  }
+  return String(value)
+}
+
 function App() {
   const isBitable = Boolean((bitable as unknown as { base?: unknown }).base)
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -549,7 +563,7 @@ function App() {
       const dayMs = 24 * 60 * 60 * 1000
       const krList = krRecords.records.map((record) => {
         const id = record.recordId
-        const title = (record.fields[krTitleId] as string) || '未命名 KR'
+        const title = toText(record.fields[krTitleId]) || '未命名 KR'
         const progress = record.fields[krProgressId] as number | undefined
         const confidence = record.fields[krConfidenceId] as number | undefined
         const due = record.fields[krDueId] as number | undefined
@@ -602,7 +616,7 @@ function App() {
       const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
       const krMap = new Map<string, string>()
       krRecords.records.forEach((record) => {
-        const title = record.fields[krTitleId] as string | undefined
+        const title = toText(record.fields[krTitleId])
         if (title) {
           krMap.set(record.recordId, title)
         }
@@ -620,7 +634,7 @@ function App() {
       actionRecords.records.forEach((record) => {
         const statusValue = record.fields[statusFieldId]
         const statusLabel = resolveSelectLabel(statusValue, 'Status', actionFields.optionIdMap)
-        const title = (record.fields[titleFieldId] as string) || '未命名 Action'
+        const title = toText(record.fields[titleFieldId]) || '未命名 Action'
         const minutes = record.fields[minutesFieldId] as number | undefined
         const planDate = record.fields[planDateFieldId] as number | undefined
         const krLinks = record.fields[krLinkFieldId] as string[] | undefined
@@ -672,7 +686,7 @@ function App() {
       const krMap = new Map<string, string>()
       const krOptions: Array<{ value: string; label: string }> = [{ value: 'all', label: '全部 KR' }]
       krRecords.records.forEach((record) => {
-        const title = record.fields[krTitleId] as string | undefined
+        const title = toText(record.fields[krTitleId])
         if (!title) return
         krMap.set(record.recordId, title)
         krOptions.push({ value: record.recordId, label: title })
@@ -691,7 +705,7 @@ function App() {
         const statusValue = record.fields[statusFieldId]
         const statusLabel = resolveSelectLabel(statusValue, 'Status', actionFields.optionIdMap)
         if (statusLabel !== 'Backlog') return
-        const title = (record.fields[titleFieldId] as string) || '未命名 Action'
+        const title = toText(record.fields[titleFieldId]) || '未命名 Action'
         const minutes = record.fields[minutesFieldId] as number | undefined
         const planDate = record.fields[planDateFieldId] as number | undefined
         const krLinks = record.fields[krLinkFieldId] as string[] | undefined
@@ -782,7 +796,7 @@ function App() {
       const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
       const krMap = new Map<string, string>()
       krRecords.records.forEach((record) => {
-        const title = record.fields[krTitleId] as string | undefined
+        const title = toText(record.fields[krTitleId])
         if (title) {
           krMap.set(record.recordId, title)
         }
@@ -794,7 +808,7 @@ function App() {
       const actionOptions: Array<{ value: string; label: string }> = []
 
       actionRecords.records.forEach((record) => {
-        const title = (record.fields[actionTitleId] as string) || '未命名 Action'
+        const title = toText(record.fields[actionTitleId]) || '未命名 Action'
         const krLinks = record.fields[actionKrId] as string[] | undefined
         const krId = krLinks && krLinks.length > 0 ? krLinks[0] : undefined
         const krTitle = krId ? krMap.get(krId) : undefined
@@ -821,7 +835,7 @@ function App() {
 
       const list = evidenceRecords.records
         .map((record) => {
-          const title = (record.fields[evidenceTitleId] as string) || '未命名证据'
+          const title = toText(record.fields[evidenceTitleId]) || '未命名证据'
           const typeLabel = resolveSelectLabel(record.fields[evidenceTypeId], 'Evidence_Type', evidenceFields.optionIdMap)
           const date = record.fields[evidenceDateId] as number | undefined
           const krLinks = record.fields[evidenceKrId] as string[] | undefined
@@ -902,7 +916,7 @@ function App() {
       const dayMs = 24 * 60 * 60 * 1000
       const krList = krRecords.records.map((record) => {
         const id = record.recordId
-        const title = (record.fields[krTitleId] as string) || '未命名 KR'
+        const title = toText(record.fields[krTitleId]) || '未命名 KR'
         const progress = record.fields[krProgressId] as number | undefined
         const confidence = record.fields[krConfidenceId] as number | undefined
         const lastEvidence = evidenceMap.get(id)
@@ -955,7 +969,7 @@ function App() {
       const krMap = new Map<string, string>()
       const krOptions: Array<{ value: string; label: string }> = []
       krRecords.records.forEach((record) => {
-        const title = record.fields[krTitleId] as string | undefined
+        const title = toText(record.fields[krTitleId])
         if (!title) return
         krMap.set(record.recordId, title)
         krOptions.push({ value: record.recordId, label: title })
@@ -968,7 +982,7 @@ function App() {
       const krIdField = resolveFieldId(ideasFields.byName.get('KeyResults')!)
 
       const list = ideasRecords.records.map((record) => {
-        const title = (record.fields[titleId] as string) || '未命名想法'
+        const title = toText(record.fields[titleId]) || '未命名想法'
         const minutes = record.fields[minutesId] as number | undefined
         const status = resolveSelectLabel(record.fields[statusId], 'Status', ideasFields.optionIdMap)
         const krLinks = record.fields[krIdField] as string[] | undefined
