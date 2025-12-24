@@ -9,6 +9,7 @@ import {
   InputNumber,
   List,
   Modal,
+  Segmented,
   Select,
   Space,
   Switch,
@@ -22,6 +23,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
 
 const { Title, Text } = Typography
+const APP_VERSION = '0.1.0'
 
 type TableMeta = {
   id?: string
@@ -188,7 +190,8 @@ function App() {
       return 'generic'
     }
   })
-  const [activeTab, setActiveTab] = useState('demo')
+  const [activeTab, setActiveTab] = useState('home')
+  const [moreTab, setMoreTab] = useState<'demo' | 'debug'>('demo')
   const [homeLoading, setHomeLoading] = useState(false)
   const [homeError, setHomeError] = useState<string | null>(null)
   const [topKrs, setTopKrs] = useState<
@@ -265,16 +268,25 @@ function App() {
   const [guardrailMinutes, setGuardrailMinutes] = useState<number | null>(null)
   const [guardrailKrId, setGuardrailKrId] = useState<string>()
   const [guardrailModalOpen, setGuardrailModalOpen] = useState(false)
+  const [logEnabled, setLogEnabled] = useState(() => {
+    try {
+      const stored = localStorage.getItem('okr_log_enabled')
+      return stored !== '0'
+    } catch {
+      return true
+    }
+  })
 
   useEffect(() => {
     try {
       localStorage.setItem('okr_webhook_url', webhookUrl)
       localStorage.setItem('okr_webhook_auto', autoSend ? '1' : '0')
       localStorage.setItem('okr_webhook_mode', webhookMode)
+      localStorage.setItem('okr_log_enabled', logEnabled ? '1' : '0')
     } catch {
       // ignore storage errors
     }
-  }, [webhookUrl, autoSend, webhookMode])
+  }, [webhookUrl, autoSend, webhookMode, logEnabled])
 
   useEffect(() => {
     try {
@@ -319,6 +331,7 @@ function App() {
   }
 
   const logEvent = async (level: LogEntry['level'], messageText: string, detail?: string) => {
+    if (!logEnabled) return
     const entry: LogEntry = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       ts: new Date().toISOString(),
@@ -1006,35 +1019,142 @@ function App() {
     }
   }, [activeTab])
 
-  const tabs = [
-    {
-      key: 'demo',
-      label: 'Demo 数据',
-      children: (
-        <ErrorBoundary
-          name="Demo 数据"
-          onError={handleBoundaryError}
-        >
-          <OperationRunner
-            title="确认生成 Demo 数据"
-            description="用于快速生成一套 OKR 演示数据（O1 + 3 个 KR + Actions/Evidence）。"
-            buttonLabel="生成 Demo OKR 数据"
-            runningLabel="正在生成..."
-            disabled={!isBitable}
-            totalSteps={14}
-            steps={[
-              '创建 Objective',
-              '创建 3 条 KeyResults',
-              '创建 6 条 Actions',
-              '创建 2 条 Evidence',
-              '创建 WeeklyPlan',
-              '创建 Idea',
-            ]}
-            onRun={runSeed}
+  const demoContent = (
+    <ErrorBoundary
+      name="Demo 数据"
+      onError={handleBoundaryError}
+    >
+      <OperationRunner
+        title="确认生成 Demo 数据"
+        description="用于快速生成一套 OKR 演示数据（O1 + 3 个 KR + Actions/Evidence）。"
+        buttonLabel="生成 Demo OKR 数据"
+        runningLabel="正在生成..."
+        disabled={!isBitable}
+        totalSteps={14}
+        steps={[
+          '创建 Objective',
+          '创建 3 条 KeyResults',
+          '创建 6 条 Actions',
+          '创建 2 条 Evidence',
+          '创建 WeeklyPlan',
+          '创建 Idea',
+        ]}
+        onRun={runSeed}
+      />
+    </ErrorBoundary>
+  )
+
+  const debugContent = (
+    <ErrorBoundary name="诊断日志" onError={handleBoundaryError}>
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <Card title="调试设置">
+          <Space direction="vertical" size={8}>
+            <Space>
+              <Text>调试模式</Text>
+              <Switch checked={logEnabled} onChange={setLogEnabled} />
+            </Space>
+            <Text type="secondary">关闭后将不再记录日志</Text>
+          </Space>
+        </Card>
+        <Card title="Webhook 设置">
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Input
+              placeholder="Webhook URL"
+              value={webhookUrl}
+              onChange={(e) => setWebhookUrl(e.target.value.trim())}
+            />
+            <Space wrap>
+              <Select
+                value={webhookMode}
+                onChange={(value) => setWebhookMode(value)}
+                options={[
+                  { value: 'generic', label: '通用 JSON' },
+                  { value: 'feishu', label: '飞书机器人' },
+                ]}
+                style={{ minWidth: 160 }}
+              />
+              <Space>
+                <Text>自动发送</Text>
+                <Switch checked={autoSend} onChange={setAutoSend} />
+              </Space>
+            </Space>
+            <Space>
+              <Button
+                onClick={async () => {
+                  const entry: LogEntry = {
+                    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                    ts: new Date().toISOString(),
+                    level: 'info',
+                    message: 'Webhook 测试',
+                    detail: '来自 OKR管理工具箱',
+                  }
+                  setLogs((prev) => [entry, ...prev].slice(0, 200))
+                  if (!webhookUrl) {
+                    message.warning('请先填写 Webhook URL')
+                    return
+                  }
+                  try {
+                    await sendWebhook(entry)
+                    message.success('Webhook 已发送')
+                  } catch (err) {
+                    console.error(err)
+                    message.error(`发送失败：${String(err)}`)
+                  }
+                }}
+              >
+                发送测试
+              </Button>
+              <Button onClick={copyLogs}>复制日志</Button>
+              <Button danger onClick={clearLogs}>
+                清空日志
+              </Button>
+            </Space>
+          </Space>
+        </Card>
+        <Card title={`运行日志（${logs.length}）`}>
+          <List
+            dataSource={logs}
+            locale={{ emptyText: '暂无日志' }}
+            renderItem={(item) => (
+              <List.Item>
+                <Space direction="vertical">
+                  <Space wrap>
+                    <Tag color={item.level === 'error' ? 'red' : item.level === 'warn' ? 'orange' : 'blue'}>
+                      {item.level.toUpperCase()}
+                    </Tag>
+                    <Text>{item.ts}</Text>
+                  </Space>
+                  <Text>{item.message}</Text>
+                  {item.detail && <Text type="secondary">{item.detail}</Text>}
+                </Space>
+              </List.Item>
+            )}
           />
-        </ErrorBoundary>
-      ),
-    },
+        </Card>
+        {lastCrash && (
+          <Card title="上次崩溃记录">
+            <Space direction="vertical" size={8}>
+              <Text type="secondary">{lastCrash}</Text>
+              <Button
+                onClick={() => {
+                  setLastCrash('')
+                  try {
+                    localStorage.removeItem('okr_last_error')
+                  } catch {
+                    // ignore
+                  }
+                }}
+              >
+                清除崩溃记录
+              </Button>
+            </Space>
+          </Card>
+        )}
+      </Space>
+    </ErrorBoundary>
+  )
+
+  const tabs = [
     {
       key: 'home',
       label: 'Home 总览',
@@ -1572,107 +1692,20 @@ function App() {
       ),
     },
     {
-      key: 'debug',
-      label: '诊断日志',
+      key: 'more',
+      label: '更多',
       children: (
-        <ErrorBoundary name="诊断日志" onError={handleBoundaryError}>
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <Card title="Webhook 设置">
-            <Space direction="vertical" size={12} style={{ width: '100%' }}>
-              <Input
-                placeholder="Webhook URL"
-                value={webhookUrl}
-                onChange={(e) => setWebhookUrl(e.target.value.trim())}
-              />
-              <Space wrap>
-                <Select
-                  value={webhookMode}
-                  onChange={(value) => setWebhookMode(value)}
-                  options={[
-                    { value: 'generic', label: '通用 JSON' },
-                    { value: 'feishu', label: '飞书机器人' },
-                  ]}
-                  style={{ minWidth: 160 }}
-                />
-                <Space>
-                  <Text>自动发送</Text>
-                  <Switch checked={autoSend} onChange={setAutoSend} />
-                </Space>
-              </Space>
-              <Space>
-                <Button
-                  onClick={async () => {
-                    const entry: LogEntry = {
-                      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-                      ts: new Date().toISOString(),
-                      level: 'info',
-                      message: 'Webhook 测试',
-                      detail: '来自 OKR管理工具箱',
-                    }
-                    setLogs((prev) => [entry, ...prev].slice(0, 200))
-                    if (!webhookUrl) {
-                      message.warning('请先填写 Webhook URL')
-                      return
-                    }
-                    try {
-                      await sendWebhook(entry)
-                      message.success('Webhook 已发送')
-                    } catch (err) {
-                      console.error(err)
-                      message.error(`发送失败：${String(err)}`)
-                    }
-                  }}
-                >
-                  发送测试
-                </Button>
-                <Button onClick={copyLogs}>复制日志</Button>
-                <Button danger onClick={clearLogs}>
-                  清空日志
-                </Button>
-              </Space>
-            </Space>
-          </Card>
-          <Card title={`运行日志（${logs.length}）`}>
-            <List
-              dataSource={logs}
-              locale={{ emptyText: '暂无日志' }}
-              renderItem={(item) => (
-                <List.Item>
-                  <Space direction="vertical">
-                    <Space wrap>
-                      <Tag color={item.level === 'error' ? 'red' : item.level === 'warn' ? 'orange' : 'blue'}>
-                        {item.level.toUpperCase()}
-                      </Tag>
-                      <Text>{item.ts}</Text>
-                    </Space>
-                    <Text>{item.message}</Text>
-                    {item.detail && <Text type="secondary">{item.detail}</Text>}
-                  </Space>
-                </List.Item>
-              )}
-            />
-          </Card>
-          {lastCrash && (
-            <Card title="上次崩溃记录">
-              <Space direction="vertical" size={8}>
-                <Text type="secondary">{lastCrash}</Text>
-                <Button
-                  onClick={() => {
-                    setLastCrash('')
-                    try {
-                      localStorage.removeItem('okr_last_error')
-                    } catch {
-                      // ignore
-                    }
-                  }}
-                >
-                  清除崩溃记录
-                </Button>
-              </Space>
-            </Card>
-          )}
-          </Space>
-        </ErrorBoundary>
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Segmented
+            options={[
+              { label: 'Demo 数据', value: 'demo' },
+              { label: '诊断日志', value: 'debug' },
+            ]}
+            value={moreTab}
+            onChange={(value) => setMoreTab(value as 'demo' | 'debug')}
+          />
+          {moreTab === 'demo' ? demoContent : debugContent}
+        </Space>
       ),
     },
   ]
@@ -1681,6 +1714,10 @@ function App() {
     <div className="app">
       <div className="app-header">
         <Title level={3}>OKR管理工具箱</Title>
+        <Space wrap>
+          <Tag>v{APP_VERSION}</Tag>
+          <Text type="secondary">Every minute counts!</Text>
+        </Space>
         <Text type="secondary">MVP 闭环：OKR → Action → Evidence → Drift → 纠偏</Text>
       </div>
       <Divider />
