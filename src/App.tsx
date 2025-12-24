@@ -23,7 +23,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
 
 const { Title, Text } = Typography
-const APP_VERSION = '0.1.0'
+const APP_VERSION = '0.1.1'
 
 type TableMeta = {
   id?: string
