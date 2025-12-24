@@ -11,6 +11,7 @@ import {
   Modal,
   Select,
   Space,
+  Switch,
   Tabs,
   Tag,
   Typography,
@@ -43,6 +44,14 @@ type TableApi = {
   getRecords: (params?: { pageSize?: number }) => Promise<{ records: Array<{ recordId: string; fields: Record<string, unknown> }> }>
   addRecord: (payload: { fields: Record<string, unknown> }) => Promise<string>
   setRecord?: (recordId: string, payload: { fields: Record<string, unknown> }) => Promise<unknown>
+}
+
+type LogEntry = {
+  id: string
+  ts: string
+  level: 'info' | 'error' | 'warn'
+  message: string
+  detail?: string
 }
 
 function resolveTableId(meta: TableMeta) {
@@ -135,6 +144,28 @@ function resolveSelectLabel(
 
 function App() {
   const isBitable = Boolean((bitable as unknown as { base?: unknown }).base)
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [webhookUrl, setWebhookUrl] = useState(() => {
+    try {
+      return localStorage.getItem('okr_webhook_url') ?? ''
+    } catch {
+      return ''
+    }
+  })
+  const [autoSend, setAutoSend] = useState(() => {
+    try {
+      return localStorage.getItem('okr_webhook_auto') === '1'
+    } catch {
+      return false
+    }
+  })
+  const [webhookMode, setWebhookMode] = useState<'generic' | 'feishu'>(() => {
+    try {
+      return (localStorage.getItem('okr_webhook_mode') as 'generic' | 'feishu') || 'generic'
+    } catch {
+      return 'generic'
+    }
+  })
   const [activeTab, setActiveTab] = useState('demo')
   const [homeLoading, setHomeLoading] = useState(false)
   const [homeError, setHomeError] = useState<string | null>(null)
@@ -175,7 +206,9 @@ function App() {
   const [evidenceError, setEvidenceError] = useState<string | null>(null)
   const [evidenceActions, setEvidenceActions] = useState<Array<{ value: string; label: string }>>([])
   const [evidenceActionMeta, setEvidenceActionMeta] = useState<Record<string, { krId?: string; krTitle?: string }>>({})
-  const [evidenceTypeOptions, setEvidenceTypeOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [evidenceTypeOptions, setEvidenceTypeOptions] = useState<Array<{ value: string; label: string }>>([
+    { value: 'Note', label: 'Note' },
+  ])
   const [evidenceList, setEvidenceList] = useState<
     Array<{ title: string; type?: string; date?: number; krTitle?: string; actionTitle?: string }>
   >([])
@@ -210,6 +243,89 @@ function App() {
   const [guardrailMinutes, setGuardrailMinutes] = useState<number | null>(null)
   const [guardrailKrId, setGuardrailKrId] = useState<string>()
   const [guardrailModalOpen, setGuardrailModalOpen] = useState(false)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('okr_webhook_url', webhookUrl)
+      localStorage.setItem('okr_webhook_auto', autoSend ? '1' : '0')
+      localStorage.setItem('okr_webhook_mode', webhookMode)
+    } catch {
+      // ignore storage errors
+    }
+  }, [webhookUrl, autoSend, webhookMode])
+
+  const sendWebhook = async (entry: LogEntry) => {
+    if (!webhookUrl) return
+    const payload =
+      webhookMode === 'feishu'
+        ? {
+            msg_type: 'text',
+            content: {
+              text: `[${entry.level.toUpperCase()}] ${entry.message}\n${entry.detail ?? ''}\n${entry.ts}`,
+            },
+          }
+        : {
+            source: 'OKR_Toolbox',
+            ...entry,
+          }
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  }
+
+  const logEvent = async (level: LogEntry['level'], messageText: string, detail?: string) => {
+    const entry: LogEntry = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      ts: new Date().toISOString(),
+      level,
+      message: messageText,
+      detail,
+    }
+    setLogs((prev) => [entry, ...prev].slice(0, 200))
+    if (autoSend && webhookUrl) {
+      try {
+        await sendWebhook(entry)
+      } catch {
+        // ignore webhook failures
+      }
+    }
+  }
+
+  const reportError = async (context: string, err: unknown) => {
+    const detail = err instanceof Error ? err.stack || err.message : String(err)
+    await logEvent('error', context, detail)
+  }
+
+  const clearLogs = () => {
+    setLogs([])
+  }
+
+  const copyLogs = async () => {
+    const payload = JSON.stringify(logs, null, 2)
+    try {
+      await navigator.clipboard.writeText(payload)
+      message.success('日志已复制')
+    } catch {
+      message.error('复制失败，请手动选择日志')
+    }
+  }
+
+  useEffect(() => {
+    const onError = (event: ErrorEvent) => {
+      void logEvent('error', event.message || '脚本错误', event.error ? String(event.error) : undefined)
+    }
+    const onRejection = (event: PromiseRejectionEvent) => {
+      void logEvent('error', '未处理的 Promise 拒绝', event.reason ? String(event.reason) : undefined)
+    }
+    window.addEventListener('error', onError)
+    window.addEventListener('unhandledrejection', onRejection)
+    return () => {
+      window.removeEventListener('error', onError)
+      window.removeEventListener('unhandledrejection', onRejection)
+    }
+  }, [])
 
   const runSeed = async (ctx: { step: (line: string) => Promise<void> }) => {
     const { step } = ctx
@@ -336,6 +452,7 @@ function App() {
     } catch (err) {
       console.error(err)
       message.error(`生成失败：${String(err)}`)
+      await reportError('Demo 数据生成失败', err)
     }
   }
 
@@ -415,6 +532,7 @@ function App() {
     } catch (err) {
       console.error(err)
       setHomeError(`加载失败：${String(err)}`)
+      await reportError('Home 数据加载失败', err)
     } finally {
       setHomeLoading(false)
     }
@@ -483,6 +601,7 @@ function App() {
     } catch (err) {
       console.error(err)
       setTodayError(`加载失败：${String(err)}`)
+      await reportError('Today 数据加载失败', err)
     } finally {
       setTodayLoading(false)
     }
@@ -546,6 +665,7 @@ function App() {
     } catch (err) {
       console.error(err)
       setBankError(`加载失败：${String(err)}`)
+      await reportError('Action Bank 加载失败', err)
     } finally {
       setBankLoading(false)
     }
@@ -678,6 +798,7 @@ function App() {
     } catch (err) {
       console.error(err)
       setEvidenceError(`加载失败：${String(err)}`)
+      await reportError('Evidence 加载失败', err)
     } finally {
       setEvidenceLoading(false)
     }
@@ -763,6 +884,7 @@ function App() {
     } catch (err) {
       console.error(err)
       setDriftError(`加载失败：${String(err)}`)
+      await reportError('Drift 加载失败', err)
     } finally {
       setDriftLoading(false)
     }
@@ -819,6 +941,7 @@ function App() {
     } catch (err) {
       console.error(err)
       setIdeasError(`加载失败：${String(err)}`)
+      await reportError('Parking 加载失败', err)
     } finally {
       setIdeasLoading(false)
     }
@@ -1373,6 +1496,89 @@ function App() {
             showIcon
             message="规则：预计耗时 > 30 分钟且未关联 KR 的任务，需要先进入 Parking Lot。"
           />
+        </Space>
+      ),
+    },
+    {
+      key: 'debug',
+      label: '诊断日志',
+      children: (
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Card title="Webhook 设置">
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Input
+                placeholder="Webhook URL"
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value.trim())}
+              />
+              <Space wrap>
+                <Select
+                  value={webhookMode}
+                  onChange={(value) => setWebhookMode(value)}
+                  options={[
+                    { value: 'generic', label: '通用 JSON' },
+                    { value: 'feishu', label: '飞书机器人' },
+                  ]}
+                  style={{ minWidth: 160 }}
+                />
+                <Space>
+                  <Text>自动发送</Text>
+                  <Switch checked={autoSend} onChange={setAutoSend} />
+                </Space>
+              </Space>
+              <Space>
+                <Button
+                  onClick={async () => {
+                    const entry: LogEntry = {
+                      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                      ts: new Date().toISOString(),
+                      level: 'info',
+                      message: 'Webhook 测试',
+                      detail: '来自 OKR管理工具箱',
+                    }
+                    setLogs((prev) => [entry, ...prev].slice(0, 200))
+                    if (!webhookUrl) {
+                      message.warning('请先填写 Webhook URL')
+                      return
+                    }
+                    try {
+                      await sendWebhook(entry)
+                      message.success('Webhook 已发送')
+                    } catch (err) {
+                      console.error(err)
+                      message.error(`发送失败：${String(err)}`)
+                    }
+                  }}
+                >
+                  发送测试
+                </Button>
+                <Button onClick={copyLogs}>复制日志</Button>
+                <Button danger onClick={clearLogs}>
+                  清空日志
+                </Button>
+              </Space>
+            </Space>
+          </Card>
+          <Card title={`运行日志（${logs.length}）`}>
+            <List
+              dataSource={logs}
+              locale={{ emptyText: '暂无日志' }}
+              renderItem={(item) => (
+                <List.Item>
+                  <Space direction="vertical">
+                    <Space wrap>
+                      <Tag color={item.level === 'error' ? 'red' : item.level === 'warn' ? 'orange' : 'blue'}>
+                        {item.level.toUpperCase()}
+                      </Tag>
+                      <Text>{item.ts}</Text>
+                    </Space>
+                    <Text>{item.message}</Text>
+                    {item.detail && <Text type="secondary">{item.detail}</Text>}
+                  </Space>
+                </List.Item>
+              )}
+            />
+          </Card>
         </Space>
       ),
     },
