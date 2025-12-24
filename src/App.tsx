@@ -23,7 +23,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
 
 const { Title, Text } = Typography
-const APP_VERSION = '0.1.2'
+const APP_VERSION = '0.1.3'
 
 type TableMeta = {
   id?: string
@@ -161,6 +161,17 @@ function toText(value: unknown): string {
 
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : []
+}
+
+function toLinkIds(value: unknown): string[] {
+  if (Array.isArray(value)) return value as string[]
+  if (value && typeof value === 'object') {
+    const obj = value as { record_ids?: string[]; recordIds?: string[]; link_record_ids?: string[] }
+    if (Array.isArray(obj.record_ids)) return obj.record_ids
+    if (Array.isArray(obj.recordIds)) return obj.recordIds
+    if (Array.isArray(obj.link_record_ids)) return obj.link_record_ids
+  }
+  return []
 }
 
 function App() {
@@ -577,9 +588,9 @@ function App() {
       const krRecordList = asArray<{ recordId: string; fields: Record<string, unknown> }>(krRecords.records)
 
       evidenceList.forEach((record) => {
-        const krLinks = record.fields[evidenceKrId] as string[] | undefined
+        const krLinks = toLinkIds(record.fields[evidenceKrId])
         const date = record.fields[evidenceDateId] as number | undefined
-        if (!krLinks || !date) return
+        if (krLinks.length === 0 || !date) return
         krLinks.forEach((krId) => {
           const prev = evidenceMap.get(krId) ?? 0
           if (date > prev) {
@@ -590,8 +601,8 @@ function App() {
 
       let unaligned = 0
       actionList.forEach((record) => {
-        const links = record.fields[actionKrId] as string[] | undefined
-        if (!links || links.length === 0) {
+        const links = toLinkIds(record.fields[actionKrId])
+        if (links.length === 0) {
           unaligned += 1
         }
       })
@@ -677,8 +688,8 @@ function App() {
         const title = toText(record.fields[titleFieldId]) || '未命名 Action'
         const minutes = record.fields[minutesFieldId] as number | undefined
         const planDate = record.fields[planDateFieldId] as number | undefined
-        const krLinks = record.fields[krLinkFieldId] as string[] | undefined
-        const krId = krLinks && krLinks.length > 0 ? krLinks[0] : undefined
+        const krLinks = toLinkIds(record.fields[krLinkFieldId])
+        const krId = krLinks.length > 0 ? krLinks[0] : undefined
         const krTitle = krId ? krMap.get(krId) : undefined
 
         if (statusLabel === 'Today') {
@@ -750,8 +761,8 @@ function App() {
         const title = toText(record.fields[titleFieldId]) || '未命名 Action'
         const minutes = record.fields[minutesFieldId] as number | undefined
         const planDate = record.fields[planDateFieldId] as number | undefined
-        const krLinks = record.fields[krLinkFieldId] as string[] | undefined
-        const krId = krLinks && krLinks.length > 0 ? krLinks[0] : undefined
+        const krLinks = toLinkIds(record.fields[krLinkFieldId])
+        const krId = krLinks.length > 0 ? krLinks[0] : undefined
         const krTitle = krId ? krMap.get(krId) : undefined
         items.push({ id: record.recordId, title, minutes, planDate, krId, krTitle })
       })
@@ -853,8 +864,8 @@ function App() {
       const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
       actionList.forEach((record) => {
         const title = toText(record.fields[actionTitleId]) || '未命名 Action'
-        const krLinks = record.fields[actionKrId] as string[] | undefined
-        const krId = krLinks && krLinks.length > 0 ? krLinks[0] : undefined
+        const krLinks = toLinkIds(record.fields[actionKrId])
+        const krId = krLinks.length > 0 ? krLinks[0] : undefined
         const krTitle = krId ? krMap.get(krId) : undefined
         actionMap[record.recordId] = { title, krId, krTitle }
         actionOptions.push({ value: record.recordId, label: title })
@@ -883,10 +894,10 @@ function App() {
           const title = toText(record.fields[evidenceTitleId]) || '未命名证据'
           const typeLabel = resolveSelectLabel(record.fields[evidenceTypeId], 'Evidence_Type', evidenceFields.optionIdMap)
           const date = record.fields[evidenceDateId] as number | undefined
-          const krLinks = record.fields[evidenceKrId] as string[] | undefined
-          const actionLinks = record.fields[evidenceActionId] as string[] | undefined
-          const krTitle = krLinks && krLinks.length > 0 ? krMap.get(krLinks[0]) : undefined
-          const actionTitle = actionLinks && actionLinks.length > 0 ? actionMap[actionLinks[0]]?.title : undefined
+          const krLinks = toLinkIds(record.fields[evidenceKrId])
+          const actionLinks = toLinkIds(record.fields[evidenceActionId])
+          const krTitle = krLinks.length > 0 ? krMap.get(krLinks[0]) : undefined
+          const actionTitle = actionLinks.length > 0 ? actionMap[actionLinks[0]]?.title : undefined
           return { title, type: typeLabel, date, krTitle, actionTitle }
         })
         .sort((a, b) => (b.date ?? 0) - (a.date ?? 0))
@@ -941,9 +952,9 @@ function App() {
       const krRecordList = asArray<{ recordId: string; fields: Record<string, unknown> }>(krRecords.records)
 
       evidenceList.forEach((record) => {
-        const krLinks = record.fields[evidenceKrId] as string[] | undefined
+        const krLinks = toLinkIds(record.fields[evidenceKrId])
         const date = record.fields[evidenceDateId] as number | undefined
-        if (!krLinks || !date) return
+        if (krLinks.length === 0 || !date) return
         krLinks.forEach((krId) => {
           const prev = evidenceMap.get(krId) ?? 0
           if (date > prev) {
@@ -954,8 +965,8 @@ function App() {
 
       let unaligned = 0
       actionList.forEach((record) => {
-        const links = record.fields[actionKrId] as string[] | undefined
-        if (!links || links.length === 0) {
+        const links = toLinkIds(record.fields[actionKrId])
+        if (links.length === 0) {
           unaligned += 1
         }
       })
@@ -1036,8 +1047,8 @@ function App() {
         const title = toText(record.fields[titleId]) || '未命名想法'
         const minutes = record.fields[minutesId] as number | undefined
         const status = resolveSelectLabel(record.fields[statusId], 'Status', ideasFields.optionIdMap)
-        const krLinks = record.fields[krIdField] as string[] | undefined
-        const krTitle = krLinks && krLinks.length > 0 ? krMap.get(krLinks[0]) : undefined
+        const krLinks = toLinkIds(record.fields[krIdField])
+        const krTitle = krLinks.length > 0 ? krMap.get(krLinks[0]) : undefined
         return { id: record.recordId, title, minutes, status, krTitle }
       })
 
