@@ -18,6 +18,7 @@ import {
   message,
 } from 'antd'
 import OperationRunner from './components/OperationRunner'
+import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
 
 const { Title, Text } = Typography
@@ -145,6 +146,13 @@ function resolveSelectLabel(
 function App() {
   const isBitable = Boolean((bitable as unknown as { base?: unknown }).base)
   const [logs, setLogs] = useState<LogEntry[]>([])
+  const [lastCrash, setLastCrash] = useState<string>(() => {
+    try {
+      return localStorage.getItem('okr_last_error') ?? ''
+    } catch {
+      return ''
+    }
+  })
   const [webhookUrl, setWebhookUrl] = useState(() => {
     try {
       return localStorage.getItem('okr_webhook_url') ?? ''
@@ -254,6 +262,27 @@ function App() {
     }
   }, [webhookUrl, autoSend, webhookMode])
 
+  useEffect(() => {
+    try {
+      if (logs.length > 0) {
+        localStorage.setItem('okr_logs', JSON.stringify(logs.slice(0, 200)))
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [logs])
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('okr_logs')
+      if (stored) {
+        setLogs(JSON.parse(stored))
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }, [])
+
   const sendWebhook = async (entry: LogEntry) => {
     if (!webhookUrl) return
     const payload =
@@ -296,6 +325,16 @@ function App() {
   const reportError = async (context: string, err: unknown) => {
     const detail = err instanceof Error ? err.stack || err.message : String(err)
     await logEvent('error', context, detail)
+  }
+
+  const handleBoundaryError = async (context: string, err: Error) => {
+    try {
+      localStorage.setItem('okr_last_error', `[${context}] ${err.message}\n${err.stack ?? ''}`)
+      setLastCrash(`[${context}] ${err.message}\n${err.stack ?? ''}`)
+    } catch {
+      // ignore storage errors
+    }
+    await reportError(`渲染失败：${context}`, err)
   }
 
   const clearLogs = () => {
@@ -958,30 +997,36 @@ function App() {
       key: 'demo',
       label: 'Demo 数据',
       children: (
-        <OperationRunner
-          title="确认生成 Demo 数据"
-          description="用于快速生成一套 OKR 演示数据（O1 + 3 个 KR + Actions/Evidence）。"
-          buttonLabel="生成 Demo OKR 数据"
-          runningLabel="正在生成..."
-          disabled={!isBitable}
-          totalSteps={14}
-          steps={[
-            '创建 Objective',
-            '创建 3 条 KeyResults',
-            '创建 6 条 Actions',
-            '创建 2 条 Evidence',
-            '创建 WeeklyPlan',
-            '创建 Idea',
-          ]}
-          onRun={runSeed}
-        />
+        <ErrorBoundary
+          name="Demo 数据"
+          onError={handleBoundaryError}
+        >
+          <OperationRunner
+            title="确认生成 Demo 数据"
+            description="用于快速生成一套 OKR 演示数据（O1 + 3 个 KR + Actions/Evidence）。"
+            buttonLabel="生成 Demo OKR 数据"
+            runningLabel="正在生成..."
+            disabled={!isBitable}
+            totalSteps={14}
+            steps={[
+              '创建 Objective',
+              '创建 3 条 KeyResults',
+              '创建 6 条 Actions',
+              '创建 2 条 Evidence',
+              '创建 WeeklyPlan',
+              '创建 Idea',
+            ]}
+            onRun={runSeed}
+          />
+        </ErrorBoundary>
       ),
     },
     {
       key: 'home',
       label: 'Home 总览',
       children: (
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <ErrorBoundary name="Home 总览" onError={handleBoundaryError}>
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
           {homeError && <Alert type="error" showIcon message={homeError} />}
           <Card>
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -1022,14 +1067,16 @@ function App() {
               }}
             />
           </Card>
-        </Space>
+          </Space>
+        </ErrorBoundary>
       ),
     },
     {
       key: 'today',
       label: 'Today',
       children: (
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <ErrorBoundary name="Today" onError={handleBoundaryError}>
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
           {todayError && <Alert type="error" showIcon message={todayError} />}
           <Card>
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -1120,14 +1167,16 @@ function App() {
               )}
             />
           </Card>
-        </Space>
+          </Space>
+        </ErrorBoundary>
       ),
     },
     {
       key: 'bank',
       label: 'Action Bank',
       children: (
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <ErrorBoundary name="Action Bank" onError={handleBoundaryError}>
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
           {bankError && <Alert type="error" showIcon message={bankError} />}
           <Card>
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -1181,14 +1230,16 @@ function App() {
               )}
             />
           </Card>
-        </Space>
+          </Space>
+        </ErrorBoundary>
       ),
     },
     {
       key: 'evidence',
       label: 'Evidence',
       children: (
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <ErrorBoundary name="Evidence" onError={handleBoundaryError}>
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
           {evidenceError && <Alert type="error" showIcon message={evidenceError} />}
           <Card title="新增证据" loading={evidenceLoading}>
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -1266,14 +1317,16 @@ function App() {
               )}
             />
           </Card>
-        </Space>
+          </Space>
+        </ErrorBoundary>
       ),
     },
     {
       key: 'drift',
       label: 'Drift',
       children: (
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <ErrorBoundary name="Drift" onError={handleBoundaryError}>
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
           {driftError && <Alert type="error" showIcon message={driftError} />}
           <Card>
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -1320,14 +1373,16 @@ function App() {
               renderItem={(item) => <List.Item>{item}</List.Item>}
             />
           </Card>
-        </Space>
+          </Space>
+        </ErrorBoundary>
       ),
     },
     {
       key: 'ideas',
       label: 'Parking Lot',
       children: (
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <ErrorBoundary name="Parking Lot" onError={handleBoundaryError}>
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
           {ideasError && <Alert type="error" showIcon message={ideasError} />}
           <Card title="新增想法" loading={ideasLoading}>
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -1417,14 +1472,16 @@ function App() {
               )}
             />
           </Card>
-        </Space>
+          </Space>
+        </ErrorBoundary>
       ),
     },
     {
       key: 'guardrail',
       label: 'Guardrail',
       children: (
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <ErrorBoundary name="Guardrail" onError={handleBoundaryError}>
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <Card title="新建 Action（护栏）">
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
               <Input
@@ -1496,14 +1553,16 @@ function App() {
             showIcon
             message="规则：预计耗时 > 30 分钟且未关联 KR 的任务，需要先进入 Parking Lot。"
           />
-        </Space>
+          </Space>
+        </ErrorBoundary>
       ),
     },
     {
       key: 'debug',
       label: '诊断日志',
       children: (
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <ErrorBoundary name="诊断日志" onError={handleBoundaryError}>
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <Card title="Webhook 设置">
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
               <Input
@@ -1579,7 +1638,27 @@ function App() {
               )}
             />
           </Card>
-        </Space>
+          {lastCrash && (
+            <Card title="上次崩溃记录">
+              <Space direction="vertical" size={8}>
+                <Text type="secondary">{lastCrash}</Text>
+                <Button
+                  onClick={() => {
+                    setLastCrash('')
+                    try {
+                      localStorage.removeItem('okr_last_error')
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                >
+                  清除崩溃记录
+                </Button>
+              </Space>
+            </Card>
+          )}
+          </Space>
+        </ErrorBoundary>
       ),
     },
   ]
