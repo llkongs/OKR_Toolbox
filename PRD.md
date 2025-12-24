@@ -24,6 +24,38 @@
 
 ---
 
+## 产品逻辑图（执行闭环）
+```mermaid
+flowchart TD
+    O[Objective] --> KR[Key Result]
+    KR --> AB[Action Bank<br/>30-90min 动作库]
+    AB -->|Daily Pull| TODAY[Today MIT 1-2 个]
+    TODAY --> DO[执行 Action]
+    DO --> EV[Evidence 证据]
+    EV --> KR
+
+    DO -->|完成失败| FAIL[失败原因]
+    FAIL --> EV
+
+    AB --> GUARD[Guardrail 护栏]
+    GUARD -->|>30min 且无 KR| PARK[Parking Lot 想法池]
+    PARK -->|评估/预算| AB
+
+    EV --> DRIFT[Drift 检测]
+    DRIFT -->|触发阈值| PLAY[纠偏 Playbook]
+    PLAY --> KR
+
+    KR --> WEEK[Weekly Plan 周交付/预算/风险]
+    WEEK --> AB
+```
+
+说明：
+- 主闭环：KR -> Action Bank -> Today -> Evidence -> Drift -> Playbook -> KR。
+- 护栏与探索：新任务未关联 KR 且耗时高，自动进入 Parking Lot，再由预算与评估回流 Action Bank。
+- 周运营：Weekly Plan 给 KR 定周交付与时间预算，反向约束 Action Bank 的供给与优先级。
+
+---
+
 ## Big Features（大功能模块）与子能力
 
 ### A. OKR 建模与对齐（Goal System）
@@ -146,4 +178,3 @@ MVP 明确不做（防止过度打磨）：
 ## 关键待定决策
 1) MVP 偏航指标：优先选 2–3 个最有效（需结合工作形态）
 2) Action Bank 模板：如何写才不会变成空话
-
