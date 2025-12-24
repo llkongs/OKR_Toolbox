@@ -23,7 +23,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
 
 const { Title, Text } = Typography
-const APP_VERSION = '0.1.1'
+const APP_VERSION = '0.1.2'
 
 type TableMeta = {
   id?: string
@@ -293,6 +293,19 @@ function App() {
       // ignore storage errors
     }
   }, [webhookUrl, autoSend, webhookMode, logEnabled])
+
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href)
+      const current = url.searchParams.get('v')
+      if (current !== APP_VERSION) {
+        url.searchParams.set('v', APP_VERSION)
+        window.location.replace(url.toString())
+      }
+    } catch {
+      // ignore URL errors
+    }
+  }, [])
 
   useEffect(() => {
     try {
