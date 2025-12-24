@@ -159,6 +159,10 @@ function toText(value: unknown): string {
   return String(value)
 }
 
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : []
+}
+
 function App() {
   const isBitable = Boolean((bitable as unknown as { base?: unknown }).base)
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -268,6 +272,8 @@ function App() {
   const [guardrailMinutes, setGuardrailMinutes] = useState<number | null>(null)
   const [guardrailKrId, setGuardrailKrId] = useState<string>()
   const [guardrailModalOpen, setGuardrailModalOpen] = useState(false)
+  const [copyModalOpen, setCopyModalOpen] = useState(false)
+  const [copyPayload, setCopyPayload] = useState('')
   const [logEnabled, setLogEnabled] = useState(() => {
     try {
       const stored = localStorage.getItem('okr_log_enabled')
@@ -374,7 +380,9 @@ function App() {
       await navigator.clipboard.writeText(payload)
       message.success('日志已复制')
     } catch {
-      message.error('复制失败，请手动选择日志')
+      setCopyPayload(payload)
+      setCopyModalOpen(true)
+      message.error('复制失败，请手动复制')
     }
   }
 
@@ -551,7 +559,11 @@ function App() {
       const actionKrId = resolveFieldId(actionFields.byName.get('KeyResult')!)
 
       const evidenceMap = new Map<string, number>()
-      evidenceRecords.records.forEach((record) => {
+      const evidenceList = asArray<{ recordId: string; fields: Record<string, unknown> }>(evidenceRecords.records)
+      const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
+      const krRecordList = asArray<{ recordId: string; fields: Record<string, unknown> }>(krRecords.records)
+
+      evidenceList.forEach((record) => {
         const krLinks = record.fields[evidenceKrId] as string[] | undefined
         const date = record.fields[evidenceDateId] as number | undefined
         if (!krLinks || !date) return
@@ -564,7 +576,7 @@ function App() {
       })
 
       let unaligned = 0
-      actionRecords.records.forEach((record) => {
+      actionList.forEach((record) => {
         const links = record.fields[actionKrId] as string[] | undefined
         if (!links || links.length === 0) {
           unaligned += 1
@@ -574,7 +586,7 @@ function App() {
 
       const now = Date.now()
       const dayMs = 24 * 60 * 60 * 1000
-      const krList = krRecords.records.map((record) => {
+      const krList = krRecordList.map((record) => {
         const id = record.recordId
         const title = toText(record.fields[krTitleId]) || '未命名 KR'
         const progress = record.fields[krProgressId] as number | undefined
@@ -628,7 +640,8 @@ function App() {
 
       const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
       const krMap = new Map<string, string>()
-      krRecords.records.forEach((record) => {
+      const krRecordList = asArray<{ recordId: string; fields: Record<string, unknown> }>(krRecords.records)
+      krRecordList.forEach((record) => {
         const title = toText(record.fields[krTitleId])
         if (title) {
           krMap.set(record.recordId, title)
@@ -644,7 +657,8 @@ function App() {
       const todayItems: Array<{ id: string; title: string; minutes?: number; planDate?: number; krId?: string; krTitle?: string }> = []
       const backlogItems: Array<{ value: string; label: string }> = []
 
-      actionRecords.records.forEach((record) => {
+      const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
+      actionList.forEach((record) => {
         const statusValue = record.fields[statusFieldId]
         const statusLabel = resolveSelectLabel(statusValue, 'Status', actionFields.optionIdMap)
         const title = toText(record.fields[titleFieldId]) || '未命名 Action'
@@ -698,7 +712,8 @@ function App() {
       const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
       const krMap = new Map<string, string>()
       const krOptions: Array<{ value: string; label: string }> = [{ value: 'all', label: '全部 KR' }]
-      krRecords.records.forEach((record) => {
+      const krList = asArray<{ recordId: string; fields: Record<string, unknown> }>(krRecords.records)
+      krList.forEach((record) => {
         const title = toText(record.fields[krTitleId])
         if (!title) return
         krMap.set(record.recordId, title)
@@ -714,7 +729,8 @@ function App() {
 
       const items: Array<{ id: string; title: string; minutes?: number; planDate?: number; krId?: string; krTitle?: string }> = []
 
-      actionRecords.records.forEach((record) => {
+      const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
+      actionList.forEach((record) => {
         const statusValue = record.fields[statusFieldId]
         const statusLabel = resolveSelectLabel(statusValue, 'Status', actionFields.optionIdMap)
         if (statusLabel !== 'Backlog') return
@@ -808,7 +824,8 @@ function App() {
 
       const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
       const krMap = new Map<string, string>()
-      krRecords.records.forEach((record) => {
+      const krList = asArray<{ recordId: string; fields: Record<string, unknown> }>(krRecords.records)
+      krList.forEach((record) => {
         const title = toText(record.fields[krTitleId])
         if (title) {
           krMap.set(record.recordId, title)
@@ -820,7 +837,8 @@ function App() {
       const actionMap: Record<string, { title: string; krId?: string; krTitle?: string }> = {}
       const actionOptions: Array<{ value: string; label: string }> = []
 
-      actionRecords.records.forEach((record) => {
+      const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
+      actionList.forEach((record) => {
         const title = toText(record.fields[actionTitleId]) || '未命名 Action'
         const krLinks = record.fields[actionKrId] as string[] | undefined
         const krId = krLinks && krLinks.length > 0 ? krLinks[0] : undefined
@@ -846,7 +864,8 @@ function App() {
       const evidenceKrId = resolveFieldId(evidenceFields.byName.get('KeyResult')!)
       const evidenceActionId = resolveFieldId(evidenceFields.byName.get('Action')!)
 
-      const list = evidenceRecords.records
+      const evidenceList = asArray<{ recordId: string; fields: Record<string, unknown> }>(evidenceRecords.records)
+      const list = evidenceList
         .map((record) => {
           const title = toText(record.fields[evidenceTitleId]) || '未命名证据'
           const typeLabel = resolveSelectLabel(record.fields[evidenceTypeId], 'Evidence_Type', evidenceFields.optionIdMap)
@@ -904,7 +923,11 @@ function App() {
       const actionKrId = resolveFieldId(actionFields.byName.get('KeyResult')!)
 
       const evidenceMap = new Map<string, number>()
-      evidenceRecords.records.forEach((record) => {
+      const evidenceList = asArray<{ recordId: string; fields: Record<string, unknown> }>(evidenceRecords.records)
+      const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
+      const krRecordList = asArray<{ recordId: string; fields: Record<string, unknown> }>(krRecords.records)
+
+      evidenceList.forEach((record) => {
         const krLinks = record.fields[evidenceKrId] as string[] | undefined
         const date = record.fields[evidenceDateId] as number | undefined
         if (!krLinks || !date) return
@@ -917,7 +940,7 @@ function App() {
       })
 
       let unaligned = 0
-      actionRecords.records.forEach((record) => {
+      actionList.forEach((record) => {
         const links = record.fields[actionKrId] as string[] | undefined
         if (!links || links.length === 0) {
           unaligned += 1
@@ -927,7 +950,7 @@ function App() {
 
       const now = Date.now()
       const dayMs = 24 * 60 * 60 * 1000
-      const krList = krRecords.records.map((record) => {
+      const krList = krRecordList.map((record) => {
         const id = record.recordId
         const title = toText(record.fields[krTitleId]) || '未命名 KR'
         const progress = record.fields[krProgressId] as number | undefined
@@ -981,7 +1004,8 @@ function App() {
       const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
       const krMap = new Map<string, string>()
       const krOptions: Array<{ value: string; label: string }> = []
-      krRecords.records.forEach((record) => {
+      const krList = asArray<{ recordId: string; fields: Record<string, unknown> }>(krRecords.records)
+      krList.forEach((record) => {
         const title = toText(record.fields[krTitleId])
         if (!title) return
         krMap.set(record.recordId, title)
@@ -994,7 +1018,8 @@ function App() {
       const statusId = resolveFieldId(ideasFields.byName.get('Status')!)
       const krIdField = resolveFieldId(ideasFields.byName.get('KeyResults')!)
 
-      const list = ideasRecords.records.map((record) => {
+      const ideasList = asArray<{ recordId: string; fields: Record<string, unknown> }>(ideasRecords.records)
+      const list = ideasList.map((record) => {
         const title = toText(record.fields[titleId]) || '未命名想法'
         const minutes = record.fields[minutesId] as number | undefined
         const status = resolveSelectLabel(record.fields[statusId], 'Status', ideasFields.optionIdMap)
@@ -1822,6 +1847,16 @@ function App() {
         <Text>
           预计耗时超过 30 分钟且未关联 KR。是否将该任务放入 Parking Lot？
         </Text>
+      </Modal>
+      <Modal
+        title="手动复制日志"
+        open={copyModalOpen}
+        onCancel={() => setCopyModalOpen(false)}
+        onOk={() => setCopyModalOpen(false)}
+        okText="关闭"
+        cancelButtonProps={{ style: { display: 'none' } }}
+      >
+        <Input.TextArea rows={8} value={copyPayload} readOnly />
       </Modal>
     </div>
   )
