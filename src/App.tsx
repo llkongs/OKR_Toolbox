@@ -23,7 +23,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
 
 const { Title, Text } = Typography
-const APP_VERSION = '0.1.6'
+const APP_VERSION = '0.1.7'
 
 type TableMeta = {
   id?: string
@@ -200,6 +200,28 @@ function getOkrPlanFieldIds(fieldIndex: ReturnType<typeof buildFieldIndex>) {
     planEndId: resolveFieldIdByCandidates(fieldIndex, ['预期结束', 'Action_Plan_End', 'Plan_End', 'Plan_Date']),
     actionProgressId: resolveFieldIdByCandidates(fieldIndex, ['Action Progress']),
   }
+}
+
+function getKrStartMap(
+  okrList: Array<{ recordId: string; fields: Record<string, unknown> }>,
+  krTitleId?: string,
+  planStartId?: string,
+  planEndId?: string
+) {
+  const map = new Map<string, number>()
+  okrList.forEach((record) => {
+    const krTitle = krTitleId ? toText(record.fields[krTitleId]) : ''
+    if (!krTitle) return
+    const planStart = planStartId ? (record.fields[planStartId] as number | undefined) : undefined
+    const planEnd = planEndId ? (record.fields[planEndId] as number | undefined) : undefined
+    const start = planStart ?? planEnd
+    if (!start) return
+    const prev = map.get(krTitle)
+    if (!prev || start < prev) {
+      map.set(krTitle, start)
+    }
+  })
+  return map
 }
 
 function dayStamp(ts: number) {
@@ -654,7 +676,7 @@ function App() {
       const okrRecords = await okrTable.getRecords({ pageSize: 5000 })
       const evidenceRecords = await evidenceTable.getRecords({ pageSize: 5000 })
 
-      const { krTitleId, actionTitleId, actionProgressId } = getOkrPlanFieldIds(okrFields)
+      const { krTitleId, actionTitleId, actionProgressId, planStartId, planEndId } = getOkrPlanFieldIds(okrFields)
       const evidenceKrId = resolveFieldId(evidenceFields.byName.get('KeyResult')!)
       const evidenceDateId = resolveFieldId(evidenceFields.byName.get('Date')!)
       const evidenceActionId = resolveFieldId(evidenceFields.byName.get('Action')!)
@@ -698,10 +720,15 @@ function App() {
 
       const now = Date.now()
       const dayMs = 24 * 60 * 60 * 1000
+      const krStartMap = getKrStartMap(okrList, krTitleId, planStartId, planEndId)
       const krTitles = Array.from(
         new Set(okrList.map((record) => (krTitleId ? toText(record.fields[krTitleId]) : '')).filter(Boolean))
       )
-      const krList = krTitles.map((title) => {
+      const startedKrTitles = krTitles.filter((title) => {
+        const start = krStartMap.get(title)
+        return start ? dayStamp(start) <= dayStamp(now) : false
+      })
+      const krList = startedKrTitles.map((title) => {
         const lastEvidence = evidenceMap.get(title)
         const daysSinceEvidence = lastEvidence ? Math.floor((now - lastEvidence) / dayMs) : null
         let progress: number | undefined
@@ -1050,7 +1077,7 @@ function App() {
       const okrRecords = await okrTable.getRecords({ pageSize: 5000 })
       const evidenceRecords = await evidenceTable.getRecords({ pageSize: 5000 })
 
-      const { krTitleId } = getOkrPlanFieldIds(okrFields)
+      const { krTitleId, planStartId, planEndId } = getOkrPlanFieldIds(okrFields)
       const evidenceKrId = evidenceFields.byName.get('KeyResult')
         ? resolveFieldId(evidenceFields.byName.get('KeyResult')!)
         : ''
@@ -1085,7 +1112,9 @@ function App() {
 
       let unaligned = 0
       okrList.forEach((record) => {
-        const actionTitle = toText(record.fields[resolveFieldIdByCandidates(okrFields, ['Actions', 'Action_Title', 'Action'])])
+        const actionTitle = toText(
+          record.fields[resolveFieldIdByCandidates(okrFields, ['Actions', 'Action_Title', 'Action'])]
+        )
         const krTitle = krTitleId ? toText(record.fields[krTitleId]) : ''
         if (actionTitle && !krTitle) unaligned += 1
       })
@@ -1094,10 +1123,15 @@ function App() {
       const now = Date.now()
       const dayMs = 24 * 60 * 60 * 1000
       const actionProgressId = resolveFieldIdByCandidates(okrFields, ['Action Progress'])
+      const krStartMap = getKrStartMap(okrList, krTitleId, planStartId, planEndId)
       const krTitles = Array.from(
         new Set(okrList.map((record) => (krTitleId ? toText(record.fields[krTitleId]) : '')).filter(Boolean))
       )
-      const krList = krTitles.map((title) => {
+      const startedKrTitles = krTitles.filter((title) => {
+        const start = krStartMap.get(title)
+        return start ? dayStamp(start) <= dayStamp(now) : false
+      })
+      const krList = startedKrTitles.map((title) => {
         const lastEvidence = evidenceMap.get(title)
         const daysSinceEvidence = lastEvidence ? Math.floor((now - lastEvidence) / dayMs) : null
         let progress: number | undefined
