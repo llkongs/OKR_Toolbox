@@ -11,17 +11,17 @@
 - 在 `KeyResults` 表创建 3-5 条 KR，并关联到 Objective。
 - 每个 KR 需要明确的可交付结果，而不是“推进一下”。
 
-## 2. 制定周计划（Plan）
-- 在 `Plan` 表为每个 KR 建立周计划（Week_Start/Week_End/Expected_Deliverable）。
-- 每周至少 1 条计划，作为 Daily Pull 的牵引。
+## 2. KR 截止日期
+- 每个 KR 只要求一个明确的截止日期（Due Date）。
+- 截止日期是所有 Action 的时间上限。
 
-## 3. 建立 Action Bank
-- 在 `Actions` 表为每个 KR 建 5-10 条“可执行动作”。
-- Action 建议绑定 Plan（让动作归属到当周计划）。
+## 3. Action 计划日期
+- 在 `Actions` 表为每个 KR 建 5-10 条“可执行动作”，并填写计划开始/完成日期。
+- 每个 Action 的计划完成日期必须早于对应 KR 的截止日期。
 - 粒度建议 30-90 分钟，越具体越好（例如“跑对照 SQL”“写 1 页结论 memo”）。
 
 ## 4. 每日拉取（Today）
-- 先选择本周 Plan，再从 Action Bank 里挑 1-2 条最重要的动作（MIT）。
+- 每天检查 Action 计划日期，若计划日期落在当天，则拉入 Today 作为 MIT。
 - 把状态改为 Today，并在当天完成。
 
 ## 5. Focus Block（深度时间块）
