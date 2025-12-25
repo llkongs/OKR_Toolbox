@@ -94,3 +94,4 @@
 - Today 顶部新增得分驾驶舱（周/月/季度），按行动进度与时间进度打分
 - Today 默认展示计划已开始且未完成的 Action
 - 新增 OKRPlan Score 公式字段脚本（`scripts/add_okrplan_score_field.sh`）
+- UI 精简为 Today + Evidence 关键闭环，并新增落后进度清单
