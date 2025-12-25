@@ -21,6 +21,10 @@
 - 粒度建议 30-90 分钟，越具体越好（例如“跑对照 SQL”“写 1 页结论 memo”）。
 - 建议把 1 周内要完成的动作都规划出来，避免临时起意打断主线。
 
+## 3.1 Action 评分（Score）
+- 在 `OKRPlan` 新增公式字段 `Score`，用于对比“时间进度 vs 实际进度”。
+- 建议运行脚本 `scripts/add_okrplan_score_field.sh` 自动创建公式字段。
+
 ## 4. 每日拉取（Today）
 - 每天检查 Action 计划日期，若计划日期落在当天，则拉入 Today 作为 MIT。
 - 把状态改为 Today，并在当天完成。

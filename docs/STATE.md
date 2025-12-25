@@ -91,3 +91,6 @@
 - Today/Action Bank 按 Action 计划日期拉取，无需 Plan 选择
 - UsageGuide 同步新流程（Action 计划日期 + KR 截止日期）
 - 插件已切换为 OKRPlan 单表读取（Today/Action Bank/Evidence/Drift）
+- Today 顶部新增得分驾驶舱（周/月/季度），按行动进度与时间进度打分
+- Today 默认展示计划已开始且未完成的 Action
+- 新增 OKRPlan Score 公式字段脚本（`scripts/add_okrplan_score_field.sh`）

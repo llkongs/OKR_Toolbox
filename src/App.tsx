@@ -9,6 +9,7 @@ import {
   InputNumber,
   List,
   Modal,
+  Progress as AntProgress,
   Segmented,
   Select,
   Space,
@@ -23,7 +24,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
 
 const { Title, Text } = Typography
-const APP_VERSION = '0.1.7'
+const APP_VERSION = '0.1.8'
 
 type TableMeta = {
   id?: string
@@ -237,6 +238,49 @@ function isTodayWithinRange(start?: number, end?: number) {
   return today >= startDay && today <= endDay
 }
 
+function getQuarterStart(date: Date) {
+  const quarter = Math.floor(date.getMonth() / 3) * 3
+  return new Date(date.getFullYear(), quarter, 1).getTime()
+}
+
+function getMonthStart(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1).getTime()
+}
+
+function getWeekStart(date: Date) {
+  const day = date.getDay()
+  const diff = day === 0 ? -6 : 1 - day
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate() + diff)
+  return start.getTime()
+}
+
+function computeActionScore(params: { planStart?: number; planEnd?: number; progress?: number }) {
+  const { planStart, planEnd, progress } = params
+  if (!planStart || !planEnd) return null
+  const start = dayStamp(planStart)
+  const end = dayStamp(planEnd)
+  if (end < start) return null
+  const today = dayStamp(Date.now())
+  const duration = end - start
+  const timeProgress = duration === 0 ? 1 : Math.min(1, Math.max(0, (today - start) / duration))
+  const rawProgress = typeof progress === 'number' ? progress : 0
+  const actualProgress = rawProgress > 1 ? rawProgress / 100 : rawProgress
+  const delta = actualProgress - timeProgress
+  const score = delta >= 0 ? 100 : Math.max(0, Math.round(100 * (1 + delta)))
+  return { score, timeProgress, actualProgress, delta }
+}
+
+function normalizeProgressValue(value: unknown) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 0
+  return value > 1 ? value / 100 : value
+}
+
+function scoreColor(value: number) {
+  if (value >= 85) return '#22c55e'
+  if (value >= 70) return '#f59e0b'
+  return '#ef4444'
+}
+
 function App() {
   const isBitable = Boolean((bitable as unknown as { base?: unknown }).base)
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -302,6 +346,12 @@ function App() {
   const [backlogOptions, setBacklogOptions] = useState<Array<{ value: string; label: string }>>([])
   const [selectedBacklogId, setSelectedBacklogId] = useState<string>()
   const [actionStatusAvailable, setActionStatusAvailable] = useState(true)
+  const [scoreSummary, setScoreSummary] = useState<{ week: number; month: number; quarter: number }>({
+    week: 0,
+    month: 0,
+    quarter: 0,
+  })
+  const [scoreReasons, setScoreReasons] = useState<string[]>([])
   const [bankLoading, setBankLoading] = useState(false)
   const [bankError, setBankError] = useState<string | null>(null)
   const [bankKrs, setBankKrs] = useState<Array<{ value: string; label: string }>>([])
@@ -784,7 +834,15 @@ function App() {
       const okrFields = buildFieldIndex(await okrTable.getFieldMetaList())
       const okrRecords = await okrTable.getRecords({ pageSize: 5000 })
 
-      const { actionTitleId, statusId, estMinutesId, planStartId, planEndId, krTitleId } = getOkrPlanFieldIds(okrFields)
+      const {
+        actionTitleId,
+        statusId,
+        estMinutesId,
+        planStartId,
+        planEndId,
+        krTitleId,
+        actionProgressId,
+      } = getOkrPlanFieldIds(okrFields)
       const statusFieldName = resolveFieldNameByCandidates(okrFields, ['Action Status', 'Action_Status', 'Status'])
       setActionStatusAvailable(Boolean(statusId))
 
@@ -798,37 +856,106 @@ function App() {
         krTitle?: string
       }> = []
       const backlogItems: Array<{ value: string; label: string }> = []
+      const scoredActions: Array<{
+        title: string
+        planStart?: number
+        planEnd?: number
+        progress?: number
+      }> = []
 
       const okrList = asArray<{ recordId: string; fields: Record<string, unknown> }>(okrRecords.records)
       okrList.forEach((record) => {
         const title = actionTitleId ? toText(record.fields[actionTitleId]) : ''
         if (!title) return
-        const statusLabel = statusId && statusFieldName
-          ? resolveSelectLabel(record.fields[statusId], statusFieldName, okrFields.optionIdMap)
-          : ''
+        const statusLabel =
+          statusId && statusFieldName
+            ? resolveSelectLabel(record.fields[statusId], statusFieldName, okrFields.optionIdMap)
+            : ''
         const minutes = estMinutesId ? (record.fields[estMinutesId] as number | undefined) : undefined
         const planStart = planStartId ? (record.fields[planStartId] as number | undefined) : undefined
         const planEnd = planEndId ? (record.fields[planEndId] as number | undefined) : undefined
         const krTitle = krTitleId ? toText(record.fields[krTitleId]) : undefined
-        const plannedToday = isTodayWithinRange(planStart, planEnd)
+        const progressRaw = actionProgressId ? record.fields[actionProgressId] : undefined
+        const progress = typeof progressRaw === 'number' ? progressRaw : undefined
+        const started = planStart || planEnd ? dayStamp(planStart ?? planEnd ?? Date.now()) <= dayStamp(Date.now()) : false
+        const doneByStatus = statusLabel === 'Done'
+        const doneByProgress = progress !== undefined && normalizeProgressValue(progress) >= 1
+        const isDone = statusId ? doneByStatus : doneByProgress
+        const shouldShowToday = (started || statusLabel === 'Today' || statusLabel === 'Doing') && !isDone
 
-        if (statusLabel === 'Today' || (!statusId && plannedToday)) {
+        if (planStart || planEnd || progress !== undefined) {
+          scoredActions.push({ title, planStart, planEnd, progress })
+        }
+
+        if (shouldShowToday) {
           todayItems.push({ id: record.recordId, title, minutes, planStart, planEnd, krId: record.recordId, krTitle })
         }
-        if (statusLabel === 'Backlog' || (!statusId && !plannedToday)) {
+        if ((statusId && statusLabel === 'Backlog') || (!statusId && !started)) {
           const dateLabel =
             planStart || planEnd
               ? `${planStart ? new Date(planStart).toLocaleDateString('zh-CN') : ''}${
                   planEnd ? ` - ${new Date(planEnd).toLocaleDateString('zh-CN')}` : ''
                 }`
               : '未规划'
-          const label = plannedToday ? `${title} · 今日计划` : `${title} · ${dateLabel}`
+          const label = `${title} · ${dateLabel}`
           backlogItems.push({ value: record.recordId, label })
         }
       })
 
       setTodayList(todayItems)
       setBacklogOptions(backlogItems)
+
+      const now = new Date()
+      const todayStampMs = dayStamp(Date.now())
+      const weekStart = dayStamp(getWeekStart(now))
+      const monthStart = dayStamp(getMonthStart(now))
+      const quarterStart = dayStamp(getQuarterStart(now))
+
+      const buildSummary = (rangeStart: number) => {
+        const scored = scoredActions
+          .map((item) => {
+            const scoreInfo = computeActionScore({
+              planStart: item.planStart,
+              planEnd: item.planEnd,
+              progress: item.progress,
+            })
+            return { ...item, scoreInfo }
+          })
+          .filter((item) => {
+            if (!item.scoreInfo || !item.planStart || !item.planEnd) return false
+            const start = dayStamp(item.planStart)
+            const end = dayStamp(item.planEnd)
+            return end >= rangeStart && start <= todayStampMs
+          })
+
+        if (scored.length === 0) {
+          return { score: 100, reasons: ['暂无已开始的 Action，得分暂按 100'] }
+        }
+
+        const avg = Math.round(
+          scored.reduce((sum, item) => sum + (item.scoreInfo?.score ?? 0), 0) / scored.length
+        )
+        const reasons = scored
+          .filter((item) => (item.scoreInfo?.delta ?? 0) < 0)
+          .sort((a, b) => (a.scoreInfo?.delta ?? 0) - (b.scoreInfo?.delta ?? 0))
+          .slice(0, 5)
+          .map((item) => {
+            const timeProgress = Math.round((item.scoreInfo?.timeProgress ?? 0) * 100)
+            const actualProgress = Math.round((item.scoreInfo?.actualProgress ?? 0) * 100)
+            const lag = Math.round(Math.abs((item.scoreInfo?.delta ?? 0) * 100))
+            return `《${item.title}》落后 ${lag}%（时间 ${timeProgress}%，实际 ${actualProgress}%）`
+          })
+        if (reasons.length === 0) {
+          reasons.push('暂无扣分项')
+        }
+        return { score: Math.max(0, Math.min(100, avg)), reasons }
+      }
+
+      const weekSummary = buildSummary(weekStart)
+      const monthSummary = buildSummary(monthStart)
+      const quarterSummary = buildSummary(quarterStart)
+      setScoreSummary({ week: weekSummary.score, month: monthSummary.score, quarter: quarterSummary.score })
+      setScoreReasons(weekSummary.reasons)
     } catch (err) {
       console.error(err)
       setTodayError(`加载失败：${String(err)}`)
@@ -1933,6 +2060,52 @@ function App() {
             {evidenceError && <Alert type="error" showIcon message={evidenceError} />}
             {driftError && <Alert type="error" showIcon message={driftError} />}
             {focusError && <Alert type="error" showIcon message={focusError} />}
+            <Card title="得分驾驶舱">
+              <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                <Space wrap size={24}>
+                  <Space direction="vertical" align="center">
+                    <AntProgress
+                      type="dashboard"
+                      percent={scoreSummary.week}
+                      strokeColor={scoreColor(scoreSummary.week)}
+                      format={(percent) => `${percent ?? 0}%`}
+                    />
+                    <Text strong>本周得分</Text>
+                  </Space>
+                  <Space direction="vertical" align="center">
+                    <AntProgress
+                      type="dashboard"
+                      percent={scoreSummary.month}
+                      strokeColor={scoreColor(scoreSummary.month)}
+                      format={(percent) => `${percent ?? 0}%`}
+                    />
+                    <Text strong>本月得分</Text>
+                  </Space>
+                  <Space direction="vertical" align="center">
+                    <AntProgress
+                      type="dashboard"
+                      percent={scoreSummary.quarter}
+                      strokeColor={scoreColor(scoreSummary.quarter)}
+                      format={(percent) => `${percent ?? 0}%`}
+                    />
+                    <Text strong>本季度得分</Text>
+                  </Space>
+                </Space>
+                <Divider style={{ margin: 0 }} />
+                <Space direction="vertical" size={8}>
+                  <Text type="secondary">本周扣分原因（按影响程度排序）</Text>
+                  <List
+                    dataSource={scoreReasons}
+                    locale={{ emptyText: '暂无扣分项' }}
+                    renderItem={(item) => (
+                      <List.Item>
+                        <Text>{item}</Text>
+                      </List.Item>
+                    )}
+                  />
+                </Space>
+              </Space>
+            </Card>
             <Card title="今日计划">
               <Space direction="vertical" size={12} style={{ width: '100%' }}>
                 {!actionStatusAvailable && (
@@ -1982,7 +2155,7 @@ function App() {
                     加入 Today
                   </Button>
                 </Space>
-                <Text type="secondary">优先拉取计划日期落在今天的 Action。</Text>
+                <Text type="secondary">默认展示计划已开始且未完成的 Action，可手动补充 Backlog。</Text>
               </Space>
             </Card>
             <Card title={`今日任务（${todayList.length}）`} loading={todayLoading}>
