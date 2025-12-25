@@ -230,14 +230,6 @@ function dayStamp(ts: number) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
 }
 
-function isTodayWithinRange(start?: number, end?: number) {
-  if (!start && !end) return false
-  const today = dayStamp(Date.now())
-  const startDay = dayStamp(start ?? end ?? today)
-  const endDay = dayStamp(end ?? start ?? today)
-  return today >= startDay && today <= endDay
-}
-
 function getQuarterStart(date: Date) {
   const quarter = Math.floor(date.getMonth() / 3) * 3
   return new Date(date.getFullYear(), quarter, 1).getTime()
