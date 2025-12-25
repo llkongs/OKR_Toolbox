@@ -86,7 +86,7 @@
 - 日志新增调试开关（默认开启，可关闭）
 - 版本号展示 + URL 自动带版本参数（用于强制刷新缓存）
 - PRD 增加“产品逻辑图（执行闭环）”Mermaid 流程图
- - 新增 Plan / FocusBlocks / Scorecard 表结构（init_base.sh）
- - Today 合并 Plan 选择 + Focus Block 记录 + Evidence 关联
- - 更多页新增 Scorecard 录入与最近评分列表
- - init_base.sh 修复 JSON 解析问题（base64 解析）
+- 移除 Plan/WeeklyPlan/TimeLog 表，保留简化结构
+- Actions 使用 Plan_Start/Plan_End 作为规划日期，Plan_Date 等旧字段已清理
+- Today/Action Bank 按 Action 计划日期拉取，无需 Plan 选择
+- UsageGuide 同步新流程（Action 计划日期 + KR 截止日期）
