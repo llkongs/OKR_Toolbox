@@ -23,7 +23,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
 
 const { Title, Text } = Typography
-const APP_VERSION = '0.1.4'
+const APP_VERSION = '0.1.5'
 
 type TableMeta = {
   id?: string
@@ -174,6 +174,19 @@ function toLinkIds(value: unknown): string[] {
   return []
 }
 
+function dayStamp(ts: number) {
+  const date = new Date(ts)
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+}
+
+function isTodayWithinRange(start?: number, end?: number) {
+  if (!start && !end) return false
+  const today = dayStamp(Date.now())
+  const startDay = dayStamp(start ?? end ?? today)
+  const endDay = dayStamp(end ?? start ?? today)
+  return today >= startDay && today <= endDay
+}
+
 function App() {
   const isBitable = Boolean((bitable as unknown as { base?: unknown }).base)
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -230,27 +243,28 @@ function App() {
       id: string
       title: string
       minutes?: number
-      planDate?: number
+      planStart?: number
+      planEnd?: number
       krId?: string
       krTitle?: string
-      planId?: string
-      planTitle?: string
     }>
   >([])
   const [backlogOptions, setBacklogOptions] = useState<Array<{ value: string; label: string }>>([])
   const [selectedBacklogId, setSelectedBacklogId] = useState<string>()
-  const [planOptions, setPlanOptions] = useState<Array<{ value: string; label: string }>>([])
-  const [planMeta, setPlanMeta] = useState<
-    Record<string, { title: string; weekStart?: number; weekEnd?: number }>
-  >({})
-  const [selectedPlanId, setSelectedPlanId] = useState<string>()
-  const [todayActionMeta, setTodayActionMeta] = useState<Record<string, { planId?: string; krId?: string }>>({})
   const [bankLoading, setBankLoading] = useState(false)
   const [bankError, setBankError] = useState<string | null>(null)
   const [bankKrs, setBankKrs] = useState<Array<{ value: string; label: string }>>([])
   const [bankSelectedKr, setBankSelectedKr] = useState<string>('all')
   const [bankActions, setBankActions] = useState<
-    Array<{ id: string; title: string; minutes?: number; planDate?: number; krId?: string; krTitle?: string }>
+    Array<{
+      id: string
+      title: string
+      minutes?: number
+      planStart?: number
+      planEnd?: number
+      krId?: string
+      krTitle?: string
+    }>
   >([])
   const [evidenceLoading, setEvidenceLoading] = useState(false)
   const [evidenceError, setEvidenceError] = useState<string | null>(null)
@@ -477,14 +491,12 @@ function App() {
       const krTable = await getTableByName('KeyResults')
       const actionTable = await getTableByName('Actions')
       const evidenceTable = await getTableByName('Evidence')
-      const weeklyTable = await getTableByName('WeeklyPlan')
       const ideasTable = await getTableByName('Ideas')
 
       const objectiveFields = buildFieldIndex(await objectiveTable.getFieldMetaList())
       const krFields = buildFieldIndex(await krTable.getFieldMetaList())
       const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
       const evidenceFields = buildFieldIndex(await evidenceTable.getFieldMetaList())
-      const weeklyFields = buildFieldIndex(await weeklyTable.getFieldMetaList())
       const ideasFields = buildFieldIndex(await ideasTable.getFieldMetaList())
 
       const objectiveTitle = 'O1 - 优质UGC搜索价值验证'
@@ -522,16 +534,16 @@ function App() {
       }
 
       const actionData = [
-        [0, '补充对照实验统计，产出价值验证结论', 90, '2026-01-05', 4],
-        [0, '汇总消费价值结论，沉淀 1 页结论 memo', 60, '2026-01-16', 4],
-        [1, '做漏斗分阶段转化对比分析', 90, '2026-01-12', 4],
-        [1, '梳理提效空间与算法策略建议', 60, '2026-01-22', 4],
-        [2, '验证搜索对供给撬动的边界条件', 90, '2026-01-19', 4],
-        [2, '形成冷启动链路方案初稿', 60, '2026-01-29', 4],
+        [0, '补充对照实验统计，产出价值验证结论', 90, '2026-01-05', '2026-01-05'],
+        [0, '汇总消费价值结论，沉淀 1 页结论 memo', 60, '2026-01-16', '2026-01-16'],
+        [1, '做漏斗分阶段转化对比分析', 90, '2026-01-12', '2026-01-12'],
+        [1, '梳理提效空间与算法策略建议', 60, '2026-01-22', '2026-01-22'],
+        [2, '验证搜索对供给撬动的边界条件', 90, '2026-01-19', '2026-01-19'],
+        [2, '形成冷启动链路方案初稿', 60, '2026-01-29', '2026-01-29'],
       ] as const
 
       const actionIds: string[] = []
-      for (const [krIndex, title, minutes, planDate, planHours] of actionData) {
+      for (const [krIndex, title, minutes, planStart, planEnd] of actionData) {
         const payload: Record<string, unknown> = {}
         if (actionFields.primaryFieldId) {
           payload[actionFields.primaryFieldId] = title
@@ -539,8 +551,14 @@ function App() {
         payload[resolveFieldId(actionFields.byName.get('Action_Title')!)] = title
         payload[resolveFieldId(actionFields.byName.get('Est_Minutes')!)] = minutes
         payload[resolveFieldId(actionFields.byName.get('Due')!)] = Date.now()
-        payload[resolveFieldId(actionFields.byName.get('Plan_Date')!)] = new Date(planDate).getTime()
-        payload[resolveFieldId(actionFields.byName.get('Plan_Hours')!)] = planHours
+        const planStartField = actionFields.byName.get('Plan_Start') ?? actionFields.byName.get('Plan_Date')
+        const planEndField = actionFields.byName.get('Plan_End') ?? actionFields.byName.get('Plan_Date')
+        if (planStartField) {
+          payload[resolveFieldId(planStartField)] = new Date(planStart).getTime()
+        }
+        if (planEndField) {
+          payload[resolveFieldId(planEndField)] = new Date(planEnd).getTime()
+        }
         payload[resolveFieldId(actionFields.byName.get('Status')!)] = selectValue('Status', 'Backlog', actionFields.optionMap)
         payload[resolveFieldId(actionFields.byName.get('KeyResult')!)] = [krIds[krIndex]]
         actionIds.push(await actionTable.addRecord({ fields: payload }))
@@ -566,18 +584,6 @@ function App() {
         await evidenceTable.addRecord({ fields: payload })
         await step(`已创建 Evidence：${title}`)
       }
-
-      const weeklyPayload: Record<string, unknown> = {}
-      if (weeklyFields.primaryFieldId) {
-        weeklyPayload[weeklyFields.primaryFieldId] = '本周重点交付'
-      }
-      weeklyPayload[resolveFieldId(weeklyFields.byName.get('Week_Start')!)] = Date.now()
-      weeklyPayload[resolveFieldId(weeklyFields.byName.get('Deliverable')!)] = '完成价值验证结论 + 漏斗分析初稿'
-      weeklyPayload[resolveFieldId(weeklyFields.byName.get('Risk')!)] = '实验样本不足影响结论稳定性'
-      weeklyPayload[resolveFieldId(weeklyFields.byName.get('Time_Budget_Min')!)] = 600
-      weeklyPayload[resolveFieldId(weeklyFields.byName.get('KeyResults')!)] = krIds
-      await weeklyTable.addRecord({ fields: weeklyPayload })
-      await step('已创建 WeeklyPlan')
 
       const ideaPayload: Record<string, unknown> = {}
       if (ideasFields.primaryFieldId) {
@@ -687,60 +693,12 @@ function App() {
 
   useEffect(() => {
     if (activeTab === 'today') {
-      void loadPlanData()
       void loadTodayData()
       void loadEvidenceData()
       void loadDriftData()
       void loadFocusBlocks()
     }
   }, [activeTab])
-
-  const fetchPlanMeta = async () => {
-    const planTable = await getTableByName('Plan')
-    const planFields = buildFieldIndex(await planTable.getFieldMetaList())
-    const planRecords = await planTable.getRecords({ pageSize: 5000 })
-
-    const titleId = resolveFieldId(planFields.byName.get('Plan_Title')!)
-    const startId = resolveFieldId(planFields.byName.get('Week_Start')!)
-    const endId = resolveFieldId(planFields.byName.get('Week_End')!)
-
-    const planList = asArray<{ recordId: string; fields: Record<string, unknown> }>(planRecords.records)
-    const meta: Record<string, { title: string; weekStart?: number; weekEnd?: number }> = {}
-    const options: Array<{ value: string; label: string }> = []
-
-    planList.forEach((record) => {
-      const title = toText(record.fields[titleId]) || '未命名计划'
-      const weekStart = record.fields[startId] as number | undefined
-      const weekEnd = record.fields[endId] as number | undefined
-      const startLabel = weekStart ? new Date(weekStart).toLocaleDateString('zh-CN') : ''
-      const endLabel = weekEnd ? new Date(weekEnd).toLocaleDateString('zh-CN') : ''
-      const dateLabel = startLabel || endLabel ? `${startLabel}${endLabel ? ` - ${endLabel}` : ''}` : ''
-      const label = dateLabel ? `${title} (${dateLabel})` : title
-      meta[record.recordId] = { title: label, weekStart, weekEnd }
-      options.push({ value: record.recordId, label })
-    })
-
-    options.sort((a, b) => {
-      const aStart = meta[a.value]?.weekStart ?? 0
-      const bStart = meta[b.value]?.weekStart ?? 0
-      return bStart - aStart
-    })
-
-    return { options, meta }
-  }
-
-  const loadPlanData = async () => {
-    if (!isBitable) return
-    try {
-      const { options, meta } = await fetchPlanMeta()
-      setPlanOptions(options)
-      setPlanMeta(meta)
-      setSelectedPlanId((prev) => prev ?? options[0]?.value)
-    } catch (err) {
-      console.error(err)
-      await reportError('Plan 数据加载失败', err)
-    }
-  }
 
   const loadTodayData = async () => {
     if (!isBitable) {
@@ -751,10 +709,6 @@ function App() {
     setTodayError(null)
     try {
       const actionTable = await getTableByName('Actions')
-      const planMetaResult = await fetchPlanMeta()
-      setPlanOptions(planMetaResult.options)
-      setPlanMeta(planMetaResult.meta)
-      setSelectedPlanId((prev) => prev ?? planMetaResult.options[0]?.value)
       const krTable = await getTableByName('KeyResults')
       const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
       const krFields = buildFieldIndex(await krTable.getFieldMetaList())
@@ -775,22 +729,22 @@ function App() {
       const statusFieldId = resolveFieldId(actionFields.byName.get('Status')!)
       const titleFieldId = resolveFieldId(actionFields.byName.get('Action_Title')!)
       const minutesFieldId = resolveFieldId(actionFields.byName.get('Est_Minutes')!)
-      const planDateFieldId = resolveFieldId(actionFields.byName.get('Plan_Date')!)
+      const planStartField = actionFields.byName.get('Plan_Start') ?? actionFields.byName.get('Plan_Date')
+      const planEndField = actionFields.byName.get('Plan_End') ?? actionFields.byName.get('Plan_Date')
+      const planStartFieldId = planStartField ? resolveFieldId(planStartField) : ''
+      const planEndFieldId = planEndField ? resolveFieldId(planEndField) : ''
       const krLinkFieldId = resolveFieldId(actionFields.byName.get('KeyResult')!)
-      const planLinkFieldId = resolveFieldId(actionFields.byName.get('Plan')!)
 
       const todayItems: Array<{
         id: string
         title: string
         minutes?: number
-        planDate?: number
+        planStart?: number
+        planEnd?: number
         krId?: string
         krTitle?: string
-        planId?: string
-        planTitle?: string
       }> = []
       const backlogItems: Array<{ value: string; label: string }> = []
-      const metaMap: Record<string, { planId?: string; krId?: string }> = {}
 
       const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
       actionList.forEach((record) => {
@@ -798,27 +752,30 @@ function App() {
         const statusLabel = resolveSelectLabel(statusValue, 'Status', actionFields.optionIdMap)
         const title = toText(record.fields[titleFieldId]) || '未命名 Action'
         const minutes = record.fields[minutesFieldId] as number | undefined
-        const planDate = record.fields[planDateFieldId] as number | undefined
+        const planStart = planStartFieldId ? (record.fields[planStartFieldId] as number | undefined) : undefined
+        const planEnd = planEndFieldId ? (record.fields[planEndFieldId] as number | undefined) : undefined
         const krLinks = toLinkIds(record.fields[krLinkFieldId])
         const krId = krLinks.length > 0 ? krLinks[0] : undefined
         const krTitle = krId ? krMap.get(krId) : undefined
-        const planLinks = toLinkIds(record.fields[planLinkFieldId])
-        const planId = planLinks.length > 0 ? planLinks[0] : undefined
-        const planTitle = planId ? planMetaResult.meta[planId]?.title : undefined
-        metaMap[record.recordId] = { planId, krId }
+        const plannedToday = isTodayWithinRange(planStart, planEnd)
 
         if (statusLabel === 'Today') {
-          todayItems.push({ id: record.recordId, title, minutes, planDate, krId, krTitle, planId, planTitle })
+          todayItems.push({ id: record.recordId, title, minutes, planStart, planEnd, krId, krTitle })
         }
         if (statusLabel === 'Backlog') {
-          const label = planTitle ? `${title} · ${planTitle}` : title
+          const dateLabel =
+            planStart || planEnd
+              ? `${planStart ? new Date(planStart).toLocaleDateString('zh-CN') : ''}${
+                  planEnd ? ` - ${new Date(planEnd).toLocaleDateString('zh-CN')}` : ''
+                }`
+              : '未规划'
+          const label = plannedToday ? `${title} · 今日计划` : `${title} · ${dateLabel}`
           backlogItems.push({ value: record.recordId, label })
         }
       })
 
       setTodayList(todayItems)
       setBacklogOptions(backlogItems)
-      setTodayActionMeta(metaMap)
     } catch (err) {
       console.error(err)
       setTodayError(`加载失败：${String(err)}`)
@@ -875,10 +832,21 @@ function App() {
       const statusFieldId = resolveFieldId(actionFields.byName.get('Status')!)
       const titleFieldId = resolveFieldId(actionFields.byName.get('Action_Title')!)
       const minutesFieldId = resolveFieldId(actionFields.byName.get('Est_Minutes')!)
-      const planDateFieldId = resolveFieldId(actionFields.byName.get('Plan_Date')!)
+      const planStartField = actionFields.byName.get('Plan_Start') ?? actionFields.byName.get('Plan_Date')
+      const planEndField = actionFields.byName.get('Plan_End') ?? actionFields.byName.get('Plan_Date')
+      const planStartFieldId = planStartField ? resolveFieldId(planStartField) : ''
+      const planEndFieldId = planEndField ? resolveFieldId(planEndField) : ''
       const krLinkFieldId = resolveFieldId(actionFields.byName.get('KeyResult')!)
 
-      const items: Array<{ id: string; title: string; minutes?: number; planDate?: number; krId?: string; krTitle?: string }> = []
+      const items: Array<{
+        id: string
+        title: string
+        minutes?: number
+        planStart?: number
+        planEnd?: number
+        krId?: string
+        krTitle?: string
+      }> = []
 
       const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
       actionList.forEach((record) => {
@@ -887,11 +855,12 @@ function App() {
         if (statusLabel !== 'Backlog') return
         const title = toText(record.fields[titleFieldId]) || '未命名 Action'
         const minutes = record.fields[minutesFieldId] as number | undefined
-        const planDate = record.fields[planDateFieldId] as number | undefined
+        const planStart = planStartFieldId ? (record.fields[planStartFieldId] as number | undefined) : undefined
+        const planEnd = planEndFieldId ? (record.fields[planEndFieldId] as number | undefined) : undefined
         const krLinks = toLinkIds(record.fields[krLinkFieldId])
         const krId = krLinks.length > 0 ? krLinks[0] : undefined
         const krTitle = krId ? krMap.get(krId) : undefined
-        items.push({ id: record.recordId, title, minutes, planDate, krId, krTitle })
+        items.push({ id: record.recordId, title, minutes, planStart, planEnd, krId, krTitle })
       })
 
       setBankActions(items)
@@ -904,11 +873,7 @@ function App() {
     }
   }
 
-  const updateActionStatus = async (
-    recordId: string,
-    status: 'Today' | 'Backlog' | 'Done',
-    planId?: string
-  ) => {
+  const updateActionStatus = async (recordId: string, status: 'Today' | 'Backlog' | 'Done') => {
     const actionTable = await getTableByName('Actions')
     if (!actionTable.setRecord) {
       throw new Error('当前环境不支持更新记录')
@@ -916,12 +881,7 @@ function App() {
     const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
     const statusFieldId = resolveFieldId(actionFields.byName.get('Status')!)
     const statusValue = selectValue('Status', status, actionFields.optionMap)
-    const payload: Record<string, unknown> = { [statusFieldId]: statusValue }
-    if (planId) {
-      const planFieldId = resolveFieldId(actionFields.byName.get('Plan')!)
-      payload[planFieldId] = [planId]
-    }
-    await actionTable.setRecord(recordId, { fields: payload })
+    await actionTable.setRecord(recordId, { fields: { [statusFieldId]: statusValue } })
   }
 
   const createEvidence = async (params: {
@@ -1393,22 +1353,18 @@ function App() {
                       key="pull"
                       type="link"
                       onClick={async () => {
-                        if (!selectedPlanId) {
-                          message.error('请先在 Today 选择本周 Plan')
-                          return
-                        }
                         try {
-                          await updateActionStatus(item.id, 'Today', selectedPlanId)
+                          await updateActionStatus(item.id, 'Today')
                           message.success('已拉取到 Today')
                           await loadBankData()
                         } catch (err) {
                           console.error(err)
-                        message.error(`操作失败：${String(err)}`)
-                      }
-                    }}
-                  >
-                    拉取到 Today
-                  </Button>,
+                          message.error(`操作失败：${String(err)}`)
+                        }
+                      }}
+                    >
+                      拉取到 Today
+                    </Button>,
                 ]}
               >
                 <Space direction="vertical">
@@ -1416,7 +1372,13 @@ function App() {
                   <Space wrap>
                     {item.krTitle && <Tag color="blue">{item.krTitle}</Tag>}
                     {item.minutes && <Tag>预计 {item.minutes} 分钟</Tag>}
-                    {item.planDate && <Tag>计划 {new Date(item.planDate).toLocaleDateString('zh-CN')}</Tag>}
+                    {(item.planStart || item.planEnd) && (
+                      <Tag>
+                        计划
+                        {item.planStart ? ` ${new Date(item.planStart).toLocaleDateString('zh-CN')}` : ''}
+                        {item.planEnd ? ` - ${new Date(item.planEnd).toLocaleDateString('zh-CN')}` : ''}
+                      </Tag>
+                    )}
                   </Space>
                 </Space>
               </List.Item>
@@ -1772,13 +1734,12 @@ function App() {
         buttonLabel="生成 Demo OKR 数据"
         runningLabel="正在生成..."
         disabled={!isBitable}
-        totalSteps={14}
+        totalSteps={5}
         steps={[
           '创建 Objective',
           '创建 3 条 KeyResults',
           '创建 6 条 Actions',
           '创建 2 条 Evidence',
-          '创建 WeeklyPlan',
           '创建 Idea',
         ]}
         onRun={runSeed}
@@ -1912,7 +1873,6 @@ function App() {
                 <Space wrap>
                   <Button
                     onClick={async () => {
-                      await loadPlanData()
                       await loadTodayData()
                       await loadEvidenceData()
                       await loadDriftData()
@@ -1925,18 +1885,6 @@ function App() {
                 </Space>
                 <Space wrap>
                   <Select
-                    placeholder="选择本周 Plan"
-                    style={{ minWidth: 320 }}
-                    options={planOptions}
-                    value={selectedPlanId}
-                    onChange={setSelectedPlanId}
-                  />
-                </Space>
-                {selectedPlanId && planMeta[selectedPlanId]?.title && (
-                  <Text type="secondary">当前 Plan：{planMeta[selectedPlanId]?.title}</Text>
-                )}
-                <Space wrap>
-                  <Select
                     placeholder="从 Backlog 选择 Action"
                     style={{ minWidth: 260 }}
                     options={backlogOptions}
@@ -1945,15 +1893,11 @@ function App() {
                   />
                   <Button
                     type="primary"
-                    disabled={!selectedBacklogId || !selectedPlanId}
+                    disabled={!selectedBacklogId}
                     onClick={async () => {
                       if (!selectedBacklogId) return
-                      if (!selectedPlanId) {
-                        message.error('请先选择本周 Plan')
-                        return
-                      }
                       try {
-                        await updateActionStatus(selectedBacklogId, 'Today', selectedPlanId)
+                        await updateActionStatus(selectedBacklogId, 'Today')
                         message.success('已加入 Today')
                         setSelectedBacklogId(undefined)
                         await loadTodayData()
@@ -1966,7 +1910,7 @@ function App() {
                     加入 Today
                   </Button>
                 </Space>
-                <Text type="secondary">Daily Pull 必须绑定 Plan，确保本周推进。</Text>
+                <Text type="secondary">优先拉取计划日期落在今天的 Action。</Text>
               </Space>
             </Card>
             <Card title={`今日任务（${todayList.length}）`} loading={todayLoading}>
@@ -2014,9 +1958,14 @@ function App() {
                     <Text strong>{item.title}</Text>
                     <Space wrap>
                       {item.krTitle && <Tag color="blue">{item.krTitle}</Tag>}
-                      {item.planTitle && <Tag color="cyan">{item.planTitle}</Tag>}
                       {item.minutes && <Tag>预计 {item.minutes} 分钟</Tag>}
-                      {item.planDate && <Tag>计划 {new Date(item.planDate).toLocaleDateString('zh-CN')}</Tag>}
+                      {(item.planStart || item.planEnd) && (
+                        <Tag>
+                          计划
+                          {item.planStart ? ` ${new Date(item.planStart).toLocaleDateString('zh-CN')}` : ''}
+                          {item.planEnd ? ` - ${new Date(item.planEnd).toLocaleDateString('zh-CN')}` : ''}
+                        </Tag>
+                      )}
                     </Space>
                   </Space>
                 </List.Item>
@@ -2052,8 +2001,8 @@ function App() {
                     try {
                       const focusTable = await getTableByName('FocusBlocks')
                       const focusFields = buildFieldIndex(await focusTable.getFieldMetaList())
-                      const actionMeta = todayActionMeta[focusActionId]
-                      const actionTitle = todayList.find((item) => item.id === focusActionId)?.title ?? '深度时间块'
+                      const actionMeta = todayList.find((item) => item.id === focusActionId)
+                      const actionTitle = actionMeta?.title ?? '深度时间块'
                       const now = Date.now()
                       const payload: Record<string, unknown> = {}
                       if (focusFields.primaryFieldId) {
@@ -2069,9 +2018,6 @@ function App() {
                       payload[resolveFieldId(focusFields.byName.get('Action')!)] = [focusActionId]
                       if (actionMeta?.krId) {
                         payload[resolveFieldId(focusFields.byName.get('KR')!)] = [actionMeta.krId]
-                      }
-                      if (actionMeta?.planId) {
-                        payload[resolveFieldId(focusFields.byName.get('Plan')!)] = [actionMeta.planId]
                       }
                       await focusTable.addRecord({ fields: payload })
                       message.success('深度时间块已记录')

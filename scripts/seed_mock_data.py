@@ -141,22 +141,34 @@ for kr in kr_list:
 action_table = TABLES.get("Actions")
 action_options, action_primary = get_field_meta(TOKEN, action_table)
 action_templates = [
-    (0, "补充对照实验统计，产出价值验证结论", 90),
-    (0, "汇总消费价值结论，沉淀 1 页结论 memo", 60),
-    (1, "做漏斗分阶段转化对比分析", 90),
-    (1, "梳理提效空间与算法策略建议", 60),
-    (2, "验证搜索对供给撬动的边界条件", 90),
-    (2, "形成冷启动链路方案初稿", 60),
+    (0, "补充对照实验统计，产出价值验证结论", 90, "2026-01-05", "2026-01-05"),
+    (0, "汇总消费价值结论，沉淀 1 页结论 memo", 60, "2026-01-16", "2026-01-16"),
+    (1, "做漏斗分阶段转化对比分析", 90, "2026-01-12", "2026-01-12"),
+    (1, "梳理提效空间与算法策略建议", 60, "2026-01-22", "2026-01-22"),
+    (2, "验证搜索对供给撬动的边界条件", 90, "2026-01-19", "2026-01-19"),
+    (2, "形成冷启动链路方案初稿", 60, "2026-01-29", "2026-01-29"),
 ]
 
 action_ids = []
-for kr_index, title, minutes in action_templates:
+action_fields = get_fields(TOKEN, action_table)
+action_field_names = {f.get("field_name") for f in action_fields}
+has_plan_start = "Plan_Start" in action_field_names
+has_plan_end = "Plan_End" in action_field_names
+has_plan_date = "Plan_Date" in action_field_names
+
+for kr_index, title, minutes, plan_start, plan_end in action_templates:
     payload = {}
     if action_primary:
         payload[action_primary] = title
     payload["Action_Title"] = title
     payload["Est_Minutes"] = minutes
     payload["Due"] = now_ms()
+    if has_plan_start:
+        payload["Plan_Start"] = int(time.mktime(time.strptime(plan_start, "%Y-%m-%d"))) * 1000
+    if has_plan_end:
+        payload["Plan_End"] = int(time.mktime(time.strptime(plan_end, "%Y-%m-%d"))) * 1000
+    if has_plan_date and not has_plan_start and not has_plan_end:
+        payload["Plan_Date"] = int(time.mktime(time.strptime(plan_start, "%Y-%m-%d"))) * 1000
     set_select(payload, "Status", "Backlog", action_options)
     payload["KeyResult"] = [kr_ids[kr_index]]
     action_ids.append(create_record(TOKEN, action_table, payload))
@@ -180,20 +192,6 @@ for idx, (kr_index, title, ev_type) in enumerate(evidence_templates):
     payload["KeyResult"] = [kr_ids[kr_index]]
     payload["Action"] = [action_ids[kr_index * 2]]
     create_record(TOKEN, evidence_table, payload)
-
-# WeeklyPlan
-weekly_table = TABLES.get("WeeklyPlan")
-weekly_options, weekly_primary = get_field_meta(TOKEN, weekly_table)
-weekly_title = "本周重点交付"
-weekly_payload = {}
-if weekly_primary:
-    weekly_payload[weekly_primary] = weekly_title
-weekly_payload["Week_Start"] = now_ms()
-weekly_payload["Deliverable"] = "完成价值验证结论 + 漏斗分析初稿"
-weekly_payload["Risk"] = "实验样本不足影响结论稳定性"
-weekly_payload["Time_Budget_Min"] = 600
-weekly_payload["KeyResults"] = kr_ids
-create_record(TOKEN, weekly_table, weekly_payload)
 
 # Ideas
 ideas_table = TABLES.get("Ideas")

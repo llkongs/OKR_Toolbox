@@ -104,23 +104,23 @@ steps = [
     },
     {
         "step": 3,
-        "title": "建立 Action Bank",
-        "instruction": "在 Actions 为每个 KR 建 5-10 条可执行动作（30-90 分钟粒度）。",
+        "title": "设置 KR 截止日期",
+        "instruction": "每个 KR 只设置一个明确的截止日期（Due Date）。",
     },
     {
         "step": 4,
-        "title": "每日拉取 MIT",
-        "instruction": "每天从 Action Bank 选 1-2 条最重要任务，状态改为 Today。",
+        "title": "建立 Action Bank",
+        "instruction": "在 Actions 为每个 KR 建 5-10 条可执行动作（30-90 分钟粒度），并填写计划开始/完成日期。",
     },
     {
         "step": 5,
-        "title": "产出证据",
-        "instruction": "完成 Action 后新增 Evidence，并关联 KR/Action。没有证据就不能算进度。",
+        "title": "每日拉取 MIT",
+        "instruction": "每天根据 Action 计划日期拉取 1-2 条最重要任务，状态改为 Today。",
     },
     {
         "step": 6,
-        "title": "周计划与复盘",
-        "instruction": "在 WeeklyPlan 记录本周交付/预算/风险；周末复盘补证据与结论。",
+        "title": "产出证据",
+        "instruction": "完成 Action 后新增 Evidence，并关联 KR/Action。没有证据就不能算进度。",
     },
     {
         "step": 7,

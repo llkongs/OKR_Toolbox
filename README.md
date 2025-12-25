@@ -5,7 +5,7 @@
 ## 插件逻辑（MVP）
 
 Tab 结构：
-- Today：Plan 选择 + MIT 拉取 + Focus Block + Evidence + Drift 提醒
+- Today：按 Action 计划日期拉取 MIT + Focus Block + Evidence + Drift 提醒
 - 更多：Home 总览 / Action Bank / Parking / Guardrail / Scorecard / Demo / Debug
 
 ## 初始化

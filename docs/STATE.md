@@ -9,7 +9,7 @@
 ## 1. 当前已完成（功能）
 
 ### Tab: Demo 数据
-- 一键生成演示数据（O1 + 3 KR + Actions/Evidence/WeeklyPlan/Ideas）
+- 一键生成演示数据（O1 + 3 KR + Actions/Evidence/Ideas）
 - 使用通用组件 `OperationRunner` 显示确认弹窗 + 进度条 + 日志
 
 ### Tab: Home 总览
@@ -47,7 +47,7 @@
 ## 2. 数据结构/脚本
 
 ### 2.1 初始化脚本
-- `scripts/init_base.sh`：只创建表结构（含 UsageGuide、Plan 字段等）
+- `scripts/init_base.sh`：只创建表结构（含 UsageGuide、Action 计划起止字段等）
 
 ### 2.2 Demo/辅助脚本
 - `scripts/seed_mock_data.sh`：写入演示 OKR 数据（CLI 方式）

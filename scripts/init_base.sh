@@ -197,12 +197,9 @@ TABLE_NAMES=(
   "KeyResults"
   "Actions"
   "Evidence"
-  "Plan"
   "FocusBlocks"
   "Scorecard"
-  "WeeklyPlan"
   "Ideas"
-  "TimeLog"
   "UsageGuide"
 )
 
@@ -247,8 +244,8 @@ for table_name in "${TABLE_NAMES[@]}"; do
       '{"field_name":"Status","type":3,"property":{"options":[{"name":"Backlog"},{"name":"Today"},{"name":"Doing"},{"name":"Done"},{"name":"Blocked"}]}}'
       '{"field_name":"Est_Minutes","type":2}'
       '{"field_name":"Due","type":5}'
-      '{"field_name":"Plan_Date","type":5}'
-      '{"field_name":"Plan_Hours","type":2}'
+      '{"field_name":"Plan_Start","type":5}'
+      '{"field_name":"Plan_End","type":5}'
       '{"field_name":"Guardrail_Flag","type":7}'
       '{"field_name":"Risk_Tags","type":1}'
       '{"field_name":"Drift_Flag","type":7}'
@@ -261,17 +258,6 @@ for table_name in "${TABLE_NAMES[@]}"; do
       '{"field_name":"Link","type":15}'
       '{"field_name":"Date","type":5}'
       '{"field_name":"Impact_Hint","type":1}'
-    )
-  elif [[ "$table_name" == "Plan" ]]; then
-    fields=(
-      '{"field_name":"Plan_Title","type":1}'
-      '{"field_name":"Week_Start","type":5}'
-      '{"field_name":"Week_End","type":5}'
-      '{"field_name":"Expected_Deliverable","type":1}'
-      '{"field_name":"Expected_Progress_Delta","type":2}'
-      '{"field_name":"Risk_Level","type":3,"property":{"options":[{"name":"Green"},{"name":"Yellow"},{"name":"Red"}]}}'
-      '{"field_name":"Status","type":3,"property":{"options":[{"name":"NotStarted"},{"name":"OnTrack"},{"name":"AtRisk"},{"name":"Done"}]}}'
-      '{"field_name":"Owner","type":1}'
     )
   elif [[ "$table_name" == "FocusBlocks" ]]; then
     fields=(
@@ -294,25 +280,12 @@ for table_name in "${TABLE_NAMES[@]}"; do
       '{"field_name":"Top_Deductions","type":1}'
       '{"field_name":"Recommended_Actions","type":1}'
     )
-  elif [[ "$table_name" == "WeeklyPlan" ]]; then
-    fields=(
-      '{"field_name":"Week_Start","type":5}'
-      '{"field_name":"Deliverable","type":1}'
-      '{"field_name":"Risk","type":1}'
-      '{"field_name":"Time_Budget_Min","type":2}'
-    )
   elif [[ "$table_name" == "Ideas" ]]; then
     fields=(
       '{"field_name":"Idea_Title","type":1}'
       '{"field_name":"Est_Minutes","type":2}'
       '{"field_name":"Status","type":3,"property":{"options":[{"name":"Parking"},{"name":"Approved"},{"name":"Doing"},{"name":"Dropped"}]}}'
       '{"field_name":"Notes","type":1}'
-    )
-  elif [[ "$table_name" == "TimeLog" ]]; then
-    fields=(
-      '{"field_name":"Start","type":5}'
-      '{"field_name":"Minutes","type":2}'
-      '{"field_name":"Note","type":1}'
     )
   elif [[ "$table_name" == "UsageGuide" ]]; then
     fields=(
@@ -345,9 +318,14 @@ for table_name in "${TABLE_NAMES[@]}"; do
     fields_json=$(api_get "${API_BASE}/open-apis/bitable/v1/apps/${APP_TOKEN}/tables/${table_id}/fields?page_size=200")
     plan_week_id=$(get_field_id_by_name "$fields_json" "Plan_Week")
     if [[ -z "$plan_week_id" ]]; then
-      plan_date_id=$(get_field_id_by_name "$fields_json" "Plan_Date")
-      if [[ -n "$plan_date_id" ]]; then
-        formula_expression="IF(LEN(WEEKNUM(bitable::\\$table[${table_id}].\\$field[${plan_date_id}],2))=1, CONCATENATE(\\\"第0\\\", WEEKNUM(bitable::\\$table[${table_id}].\\$field[${plan_date_id}],2), \\\"周\\\"), CONCATENATE(\\\"第\\\", WEEKNUM(bitable::\\$table[${table_id}].\\$field[${plan_date_id}],2), \\\"周\\\"))"
+      plan_end_id=$(get_field_id_by_name "$fields_json" "Plan_End")
+      plan_start_id=$(get_field_id_by_name "$fields_json" "Plan_Start")
+      source_id="$plan_end_id"
+      if [[ -z "$source_id" ]]; then
+        source_id="$plan_start_id"
+      fi
+      if [[ -n "$source_id" ]]; then
+        formula_expression="IF(LEN(WEEKNUM(bitable::\\$table[${table_id}].\\$field[${source_id}],2))=1, CONCATENATE(\\\"第0\\\", WEEKNUM(bitable::\\$table[${table_id}].\\$field[${source_id}],2), \\\"周\\\"), CONCATENATE(\\\"第\\\", WEEKNUM(bitable::\\$table[${table_id}].\\$field[${source_id}],2), \\\"周\\\"))"
         field_json=$(printf '{"field_name":"Plan_Week","type":20,"property":{"formula_expression":"%s"}}' "$formula_expression")
         response=$(create_field "$table_id" "$field_json")
         field_id=$(printf '%s' "$response" | "$PYTHON_BIN" -c 'import sys,json; data=json.load(sys.stdin); print(data.get("data", {}).get("field", {}).get("field_id", ""))')
@@ -368,28 +346,20 @@ OBJECTIVES_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_F
 KEYRESULTS_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["KeyResults"]["table_id"])')
 ACTIONS_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["Actions"]["table_id"])')
 EVIDENCE_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["Evidence"]["table_id"])')
-PLAN_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["Plan"]["table_id"])')
 FOCUS_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["FocusBlocks"]["table_id"])')
 SCORECARD_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["Scorecard"]["table_id"])')
-WEEKLY_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["WeeklyPlan"]["table_id"])')
 IDEAS_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["Ideas"]["table_id"])')
-TIMELOG_ID=$("$PYTHON_BIN" -c 'import json; data=json.load(open("'"${SCHEMA_FILE}"'")); print(data["tables"]["TimeLog"]["table_id"])')
 
 link_fields=(
   "${KEYRESULTS_ID}|Objective|{\"field_name\":\"Objective\",\"type\":18,\"property\":{\"table_id\":\"${OBJECTIVES_ID}\",\"multiple\":false}}"
   "${ACTIONS_ID}|KeyResult|{\"field_name\":\"KeyResult\",\"type\":18,\"property\":{\"table_id\":\"${KEYRESULTS_ID}\",\"multiple\":false}}"
   "${EVIDENCE_ID}|KeyResult|{\"field_name\":\"KeyResult\",\"type\":18,\"property\":{\"table_id\":\"${KEYRESULTS_ID}\",\"multiple\":false}}"
   "${EVIDENCE_ID}|Action|{\"field_name\":\"Action\",\"type\":18,\"property\":{\"table_id\":\"${ACTIONS_ID}\",\"multiple\":false}}"
-  "${PLAN_ID}|KR|{\"field_name\":\"KR\",\"type\":18,\"property\":{\"table_id\":\"${KEYRESULTS_ID}\",\"multiple\":false}}"
-  "${ACTIONS_ID}|Plan|{\"field_name\":\"Plan\",\"type\":18,\"property\":{\"table_id\":\"${PLAN_ID}\",\"multiple\":false}}"
   "${FOCUS_ID}|Action|{\"field_name\":\"Action\",\"type\":18,\"property\":{\"table_id\":\"${ACTIONS_ID}\",\"multiple\":false}}"
   "${FOCUS_ID}|KR|{\"field_name\":\"KR\",\"type\":18,\"property\":{\"table_id\":\"${KEYRESULTS_ID}\",\"multiple\":false}}"
-  "${FOCUS_ID}|Plan|{\"field_name\":\"Plan\",\"type\":18,\"property\":{\"table_id\":\"${PLAN_ID}\",\"multiple\":false}}"
   "${FOCUS_ID}|Evidence|{\"field_name\":\"Evidence\",\"type\":18,\"property\":{\"table_id\":\"${EVIDENCE_ID}\",\"multiple\":true}}"
   "${EVIDENCE_ID}|FocusBlock|{\"field_name\":\"FocusBlock\",\"type\":18,\"property\":{\"table_id\":\"${FOCUS_ID}\",\"multiple\":false}}"
-  "${WEEKLY_ID}|KeyResults|{\"field_name\":\"KeyResults\",\"type\":18,\"property\":{\"table_id\":\"${KEYRESULTS_ID}\",\"multiple\":true}}"
   "${IDEAS_ID}|KeyResults|{\"field_name\":\"KeyResults\",\"type\":18,\"property\":{\"table_id\":\"${KEYRESULTS_ID}\",\"multiple\":true}}"
-  "${TIMELOG_ID}|Action|{\"field_name\":\"Action\",\"type\":18,\"property\":{\"table_id\":\"${ACTIONS_ID}\",\"multiple\":false}}"
 )
 
 echo "Creating link fields..."

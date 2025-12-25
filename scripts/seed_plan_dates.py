@@ -107,12 +107,12 @@ if not action_table:
     sys.exit(1)
 
 plan_map = {
-    "补充对照实验统计，产出价值验证结论": ("2026-01-05", 4),
-    "汇总消费价值结论，沉淀 1 页结论 memo": ("2026-01-16", 4),
-    "做漏斗分阶段转化对比分析": ("2026-01-12", 4),
-    "梳理提效空间与算法策略建议": ("2026-01-22", 4),
-    "验证搜索对供给撬动的边界条件": ("2026-01-19", 4),
-    "形成冷启动链路方案初稿": ("2026-01-29", 4),
+    "补充对照实验统计，产出价值验证结论": ("2026-01-05", "2026-01-05"),
+    "汇总消费价值结论，沉淀 1 页结论 memo": ("2026-01-16", "2026-01-16"),
+    "做漏斗分阶段转化对比分析": ("2026-01-12", "2026-01-12"),
+    "梳理提效空间与算法策略建议": ("2026-01-22", "2026-01-22"),
+    "验证搜索对供给撬动的边界条件": ("2026-01-19", "2026-01-19"),
+    "形成冷启动链路方案初稿": ("2026-01-29", "2026-01-29"),
 }
 
 records = get_records(TOKEN, action_table)
@@ -121,14 +121,14 @@ for rec in records:
     title = fields.get("Action_Title")
     if not title or title not in plan_map:
         continue
-    date_str, hours = plan_map[title]
+    start_str, end_str = plan_map[title]
     update_record(
         TOKEN,
         action_table,
         rec.get("record_id"),
         {
-            "Plan_Date": to_ms(date_str),
-            "Plan_Hours": hours,
+            "Plan_Start": to_ms(start_str),
+            "Plan_End": to_ms(end_str),
         },
     )
 

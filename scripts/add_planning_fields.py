@@ -18,9 +18,8 @@ FIELDS_TO_ADD = {
         {"field_name": "Due_Date", "type": 5},
     ],
     "Actions": [
-        {"field_name": "Plan_Date", "type": 5},
-        {"field_name": "Plan_Week", "type": 1},
-        {"field_name": "Plan_Hours", "type": 2},
+        {"field_name": "Plan_Start", "type": 5},
+        {"field_name": "Plan_End", "type": 5},
     ],
 }
 

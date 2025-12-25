@@ -98,12 +98,15 @@ if not actions_table:
 
 fields = get_fields(TOKEN, actions_table)
 plan_week = next((f for f in fields if f.get("field_name") == "Plan_Week"), None)
+plan_end = next((f for f in fields if f.get("field_name") == "Plan_End"), None)
+plan_start = next((f for f in fields if f.get("field_name") == "Plan_Start"), None)
 plan_date = next((f for f in fields if f.get("field_name") == "Plan_Date"), None)
-if not plan_date:
-    print("Plan_Date field not found; cannot build Plan_Week formula.")
+source_field = plan_end or plan_start or plan_date
+if not source_field:
+    print("Plan_End/Plan_Start/Plan_Date field not found; cannot build Plan_Week formula.")
     sys.exit(1)
 
-plan_date_ref = f"bitable::$table[{actions_table}].$field[{plan_date.get('field_id')}]"
+plan_date_ref = f"bitable::$table[{actions_table}].$field[{source_field.get('field_id')}]"
 formula_expression = (
     "IF(LEN(WEEKNUM({PLAN_DATE_REF},2))=1, "
     "CONCATENATE(\"第0\", WEEKNUM({PLAN_DATE_REF},2), \"周\"), "

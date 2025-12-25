@@ -41,12 +41,12 @@ Users can write OKR docs (O/KR/owner/timeline), but execution drifts:
 
 ### Must-have features
 1) OKR modeling (Objectives, KeyResults, owners, cycle, confidence).
-2) Plan system (weekly plan per KR; weekly deliverable + expected progress + risk).
-3) Action Bank + Daily Pull (Actions linked to Plan/KR, “Today” selection).
-4) Focus Block (deep work blocks linked to Action/Plan).
-5) Evidence system (Evidence linked to KR/Action/Focus Block, with quality rating).
-6) Scorecard (weekly scoring with deductions + correction actions).
-7) Drift detection (at least):
+2) KR 截止日期 + Action 计划起止日期（Action 完成日期必须早于 KR 截止日期）。
+3) Action Bank + Daily Pull（按 Action 计划日期拉取 Today）。
+4) Focus Block（深度时间块，关联 Action）。
+5) Evidence system（Evidence linked to KR/Action/Focus Block, with quality rating）。
+6) Scorecard（weekly scoring with deductions + correction actions）。
+7) Drift detection（at least）:
    - Days since last evidence per KR.
    - Unaligned actions count (Actions without KR link).
    - Low scorecard weeks (score below threshold).
@@ -66,7 +66,6 @@ Users can write OKR docs (O/KR/owner/timeline), but execution drifts:
 ### 3.1 Tables
 - Objectives
 - KeyResults
-- Plan
 - Actions
 - FocusBlocks
 - Evidence
@@ -92,17 +91,10 @@ Users can write OKR docs (O/KR/owner/timeline), but execution drifts:
 - Action_Title (text)
 - Status (single select: Backlog/Today/Doing/Done/Blocked)
 - Est_Minutes (number)
-- Plan (link to Plan, single)
+- Plan_Start (datetime)
+- Plan_End (datetime)
 - KeyResult (link to KeyResults, single)
 - Guardrail_Flag (checkbox or single select; optional)
-
-**Plan**
-- Week_Start (date)
-- Week_End (date)
-- Deliverable (text)
-- Expected_Progress (number or %)
-- Risk (text)
-- KeyResult (link to KeyResults, single)
 
 **FocusBlocks**
 - Start (datetime)
@@ -110,7 +102,6 @@ Users can write OKR docs (O/KR/owner/timeline), but execution drifts:
 - Minutes (number)
 - Goal (text)
 - Action (link to Actions, single)
-- Plan (link to Plan, single)
 
 **Evidence**
 - Evidence_Title (text)
@@ -153,9 +144,10 @@ Users can write OKR docs (O/KR/owner/timeline), but execution drifts:
   - attach Evidence link OR provide “failure reason” (simple text).
 - If no evidence for a KR for >= 2 days: drift warning.
 
-### 4.3 Plan-first
-- Weekly Plan is the only valid source for Daily Pull.
-- Actions should be linked to Plan and KR.
+### 4.3 Action planning
+- 每个 Action 填写计划开始/完成日期。
+- 每日拉取以 Action 计划日期为准。
+- Action 完成日期必须早于对应 KR 截止日期。
 
 ### 4.4 Scorecard
 - Weekly Scorecard required with deductions + correction actions.
@@ -199,8 +191,7 @@ Notes:
 
 ### Phase 1: Plugin (Bitable Base extension)
 Deliver a plugin UI with:
-- Today: Plan selection + MIT list + Evidence entry
-- Plan: weekly plan list + progress status
+- Today: 按 Action 计划日期拉取 MIT + Evidence entry
 - Action Bank: quick filter + “Pull to Today”
 - Focus Block: record deep work blocks
 - Evidence: add + list
@@ -216,7 +207,7 @@ Implementation guidance:
 - Create standard views:
   - Today (Actions where Status=Today)
   - Drift (KRs where days_since_last_evidence >= 2, or confidence=Red)
-  - Weekly (WeeklyPlan for current week)
+  - Weekly (Actions planned in current week)
 - Optional scheduled notifications (if feasible): daily drift reminder.
 
 ---
