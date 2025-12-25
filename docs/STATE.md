@@ -90,3 +90,4 @@
 - Actions 使用 Plan_Start/Plan_End 作为规划日期，Plan_Date 等旧字段已清理
 - Today/Action Bank 按 Action 计划日期拉取，无需 Plan 选择
 - UsageGuide 同步新流程（Action 计划日期 + KR 截止日期）
+- 插件已切换为 OKRPlan 单表读取（Today/Action Bank/Evidence/Drift）

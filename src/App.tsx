@@ -23,7 +23,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
 
 const { Title, Text } = Typography
-const APP_VERSION = '0.1.5'
+const APP_VERSION = '0.1.6'
 
 type TableMeta = {
   id?: string
@@ -174,6 +174,34 @@ function toLinkIds(value: unknown): string[] {
   return []
 }
 
+function resolveFieldIdByCandidates(fieldIndex: ReturnType<typeof buildFieldIndex>, names: string[]) {
+  for (const name of names) {
+    const meta = fieldIndex.byName.get(name)
+    if (meta) return resolveFieldId(meta)
+  }
+  return ''
+}
+
+function resolveFieldNameByCandidates(fieldIndex: ReturnType<typeof buildFieldIndex>, names: string[]) {
+  for (const name of names) {
+    if (fieldIndex.byName.get(name)) return name
+  }
+  return ''
+}
+
+function getOkrPlanFieldIds(fieldIndex: ReturnType<typeof buildFieldIndex>) {
+  return {
+    objectiveId: resolveFieldIdByCandidates(fieldIndex, ['Objectives', 'Objective_Title', 'Objective']),
+    krTitleId: resolveFieldIdByCandidates(fieldIndex, ['Key Results', 'KR_Title', 'KR']),
+    actionTitleId: resolveFieldIdByCandidates(fieldIndex, ['Actions', 'Action_Title', 'Action']),
+    statusId: resolveFieldIdByCandidates(fieldIndex, ['Action Status', 'Action_Status', 'Status']),
+    estMinutesId: resolveFieldIdByCandidates(fieldIndex, ['Action Est Minutes', 'Action_Est_Minutes', 'Est_Minutes']),
+    planStartId: resolveFieldIdByCandidates(fieldIndex, ['预期开始', 'Action_Plan_Start', 'Plan_Start', 'Plan_Date']),
+    planEndId: resolveFieldIdByCandidates(fieldIndex, ['预期结束', 'Action_Plan_End', 'Plan_End', 'Plan_Date']),
+    actionProgressId: resolveFieldIdByCandidates(fieldIndex, ['Action Progress']),
+  }
+}
+
 function dayStamp(ts: number) {
   const date = new Date(ts)
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
@@ -251,6 +279,7 @@ function App() {
   >([])
   const [backlogOptions, setBacklogOptions] = useState<Array<{ value: string; label: string }>>([])
   const [selectedBacklogId, setSelectedBacklogId] = useState<string>()
+  const [actionStatusAvailable, setActionStatusAvailable] = useState(true)
   const [bankLoading, setBankLoading] = useState(false)
   const [bankError, setBankError] = useState<string | null>(null)
   const [bankKrs, setBankKrs] = useState<Array<{ value: string; label: string }>>([])
@@ -301,6 +330,7 @@ function App() {
     Array<{ id: string; title: string; minutes?: number; status?: string; krTitle?: string }>
   >([])
   const [ideasKrOptions, setIdeasKrOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [okrKrTitleById, setOkrKrTitleById] = useState<Record<string, string>>({})
   const [ideaTitle, setIdeaTitle] = useState('')
   const [ideaMinutes, setIdeaMinutes] = useState<number | null>(null)
   const [ideaNotes, setIdeaNotes] = useState('')
@@ -487,51 +517,36 @@ function App() {
   const runSeed = async (ctx: { step: (line: string) => Promise<void> }) => {
     const { step } = ctx
     try {
-      const objectiveTable = await getTableByName('Objectives')
-      const krTable = await getTableByName('KeyResults')
-      const actionTable = await getTableByName('Actions')
+      const okrTable = await getTableByName('OKRPlan')
       const evidenceTable = await getTableByName('Evidence')
       const ideasTable = await getTableByName('Ideas')
 
-      const objectiveFields = buildFieldIndex(await objectiveTable.getFieldMetaList())
-      const krFields = buildFieldIndex(await krTable.getFieldMetaList())
-      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
+      const okrFields = buildFieldIndex(await okrTable.getFieldMetaList())
       const evidenceFields = buildFieldIndex(await evidenceTable.getFieldMetaList())
       const ideasFields = buildFieldIndex(await ideasTable.getFieldMetaList())
 
       const objectiveTitle = 'O1 - 优质UGC搜索价值验证'
-      const objectivePayload: Record<string, unknown> = {
-        [objectiveFields.byName.get('O_Title') ? resolveFieldId(objectiveFields.byName.get('O_Title')!) : 'O_Title']: objectiveTitle,
-        [objectiveFields.byName.get('Cycle') ? resolveFieldId(objectiveFields.byName.get('Cycle')!) : 'Cycle']: '2026 Q1',
-      }
-      if (objectiveFields.primaryFieldId) {
-        objectivePayload[objectiveFields.primaryFieldId] = objectiveTitle
-      }
-      const objectiveId = await objectiveTable.addRecord({ fields: objectivePayload })
-      await step('已创建 Objective')
+      const objectiveFieldId = resolveFieldIdByCandidates(okrFields, ['Objectives', 'Objective_Title', 'Objective'])
+      const krFieldId = resolveFieldIdByCandidates(okrFields, ['Key Results', 'KR_Title', 'KR'])
+      const actionFieldId = resolveFieldIdByCandidates(okrFields, ['Actions', 'Action_Title', 'Action'])
+      const actionStatusFieldName = resolveFieldNameByCandidates(okrFields, ['Action Status', 'Action_Status', 'Status'])
+      const actionStatusId = actionStatusFieldName ? resolveFieldId(okrFields.byName.get(actionStatusFieldName)!) : ''
+      const actionMinutesId = resolveFieldIdByCandidates(okrFields, ['Action Est Minutes', 'Action_Est_Minutes', 'Est_Minutes'])
+      const cycleFieldId = resolveFieldIdByCandidates(okrFields, ['Cycle'])
+      const ownerFieldId = resolveFieldIdByCandidates(okrFields, ['Owner'])
+      const krTypeFieldName = okrFields.byName.get('KR_Type') ? 'KR_Type' : ''
+      const planStartId = resolveFieldIdByCandidates(okrFields, ['预期开始', 'Action_Plan_Start', 'Plan_Start'])
+      const planEndId = resolveFieldIdByCandidates(okrFields, ['预期结束', 'Action_Plan_End', 'Plan_End'])
+      const actionProgressId = resolveFieldIdByCandidates(okrFields, ['Action Progress'])
+      const actionRiskId = resolveFieldIdByCandidates(okrFields, ['Action Risks'])
+      const actionDriftFieldName = okrFields.byName.get('Action Drift Flag') ? 'Action Drift Flag' : ''
+      await step('已读取 OKRPlan 字段')
 
       const krData = [
         { title: '完成优质UGC价值验证结论', type: 'Milestone', progress: 30, confidence: 3 },
         { title: '完成漏斗效率分析并明确提效空间', type: 'Deliverable', progress: 20, confidence: 3 },
         { title: '验证搜索对优质UGC供给的撬动上限', type: 'Milestone', progress: 10, confidence: 2 },
       ]
-
-      const krIds: string[] = []
-      for (const kr of krData) {
-        const payload: Record<string, unknown> = {}
-        if (krFields.primaryFieldId) {
-          payload[krFields.primaryFieldId] = kr.title
-        }
-        payload[resolveFieldId(krFields.byName.get('KR_Title')!)] = kr.title
-        payload[resolveFieldId(krFields.byName.get('Progress')!)] = kr.progress
-        payload[resolveFieldId(krFields.byName.get('Confidence')!)] = kr.confidence
-        payload[resolveFieldId(krFields.byName.get('Target')!)] = ''
-        payload[resolveFieldId(krFields.byName.get('KR_Type')!)] = selectValue('KR_Type', kr.type, krFields.optionMap)
-        payload[resolveFieldId(krFields.byName.get('Objective')!)] = [objectiveId]
-        payload[resolveFieldId(krFields.byName.get('Due_Date')!)] = new Date('2026-01-31').getTime()
-        krIds.push(await krTable.addRecord({ fields: payload }))
-        await step(`已创建 KR：${kr.title}`)
-      }
 
       const actionData = [
         [0, '补充对照实验统计，产出价值验证结论', 90, '2026-01-05', '2026-01-05'],
@@ -544,24 +559,39 @@ function App() {
 
       const actionIds: string[] = []
       for (const [krIndex, title, minutes, planStart, planEnd] of actionData) {
+        const kr = krData[krIndex]
         const payload: Record<string, unknown> = {}
-        if (actionFields.primaryFieldId) {
-          payload[actionFields.primaryFieldId] = title
+        if (okrFields.primaryFieldId) {
+          payload[okrFields.primaryFieldId] = title
         }
-        payload[resolveFieldId(actionFields.byName.get('Action_Title')!)] = title
-        payload[resolveFieldId(actionFields.byName.get('Est_Minutes')!)] = minutes
-        payload[resolveFieldId(actionFields.byName.get('Due')!)] = Date.now()
-        const planStartField = actionFields.byName.get('Plan_Start') ?? actionFields.byName.get('Plan_Date')
-        const planEndField = actionFields.byName.get('Plan_End') ?? actionFields.byName.get('Plan_Date')
-        if (planStartField) {
-          payload[resolveFieldId(planStartField)] = new Date(planStart).getTime()
+        if (objectiveFieldId) payload[objectiveFieldId] = objectiveTitle
+        if (krFieldId) payload[krFieldId] = kr.title
+        if (actionFieldId) payload[actionFieldId] = title
+        if (actionMinutesId) payload[actionMinutesId] = minutes
+        if (actionStatusId) {
+          payload[actionStatusId] = selectValue(actionStatusFieldName, 'Backlog', okrFields.optionMap)
         }
-        if (planEndField) {
-          payload[resolveFieldId(planEndField)] = new Date(planEnd).getTime()
+        if (cycleFieldId) payload[cycleFieldId] = '2026 Q1'
+        if (ownerFieldId) payload[ownerFieldId] = ''
+        if (krTypeFieldName) {
+          payload[resolveFieldId(okrFields.byName.get(krTypeFieldName)!)] = selectValue(
+            krTypeFieldName,
+            kr.type,
+            okrFields.optionMap
+          )
         }
-        payload[resolveFieldId(actionFields.byName.get('Status')!)] = selectValue('Status', 'Backlog', actionFields.optionMap)
-        payload[resolveFieldId(actionFields.byName.get('KeyResult')!)] = [krIds[krIndex]]
-        actionIds.push(await actionTable.addRecord({ fields: payload }))
+        if (planStartId) payload[planStartId] = new Date(planStart).getTime()
+        if (planEndId) payload[planEndId] = new Date(planEnd).getTime()
+        if (actionProgressId) payload[actionProgressId] = 0
+        if (actionRiskId) payload[actionRiskId] = ''
+        if (actionDriftFieldName) {
+          payload[resolveFieldId(okrFields.byName.get(actionDriftFieldName)!)] = selectValue(
+            actionDriftFieldName,
+            'No',
+            okrFields.optionMap
+          )
+        }
+        actionIds.push(await okrTable.addRecord({ fields: payload }))
         await step(`已创建 Action：${title}`)
       }
 
@@ -579,7 +609,9 @@ function App() {
         payload[resolveFieldId(evidenceFields.byName.get('Link')!)] = 'https://example.com'
         payload[resolveFieldId(evidenceFields.byName.get('Date')!)] = Date.now()
         payload[resolveFieldId(evidenceFields.byName.get('Evidence_Type')!)] = selectValue('Evidence_Type', evType, evidenceFields.optionMap)
-        payload[resolveFieldId(evidenceFields.byName.get('KeyResult')!)] = [krIds[krIndex]]
+        if (evidenceFields.byName.get('KeyResult')) {
+          payload[resolveFieldId(evidenceFields.byName.get('KeyResult')!)] = [actionIds[actionIndex]]
+        }
         payload[resolveFieldId(evidenceFields.byName.get('Action')!)] = [actionIds[actionIndex]]
         await evidenceTable.addRecord({ fields: payload })
         await step(`已创建 Evidence：${title}`)
@@ -593,7 +625,7 @@ function App() {
       ideaPayload[resolveFieldId(ideasFields.byName.get('Est_Minutes')!)] = 120
       ideaPayload[resolveFieldId(ideasFields.byName.get('Status')!)] = selectValue('Status', 'Parking', ideasFields.optionMap)
       ideaPayload[resolveFieldId(ideasFields.byName.get('Notes')!)] = '等待结论后再评估是否转正'
-      ideaPayload[resolveFieldId(ideasFields.byName.get('KeyResults')!)] = [krIds[2]]
+      ideaPayload[resolveFieldId(ideasFields.byName.get('KeyResults')!)] = [actionIds[4]]
       await ideasTable.addRecord({ fields: ideaPayload })
       await step('已创建 Idea')
 
@@ -613,63 +645,76 @@ function App() {
     setHomeLoading(true)
     setHomeError(null)
     try {
-      const krTable = await getTableByName('KeyResults')
+      const okrTable = await getTableByName('OKRPlan')
       const evidenceTable = await getTableByName('Evidence')
-      const actionTable = await getTableByName('Actions')
 
-      const krFields = buildFieldIndex(await krTable.getFieldMetaList())
+      const okrFields = buildFieldIndex(await okrTable.getFieldMetaList())
       const evidenceFields = buildFieldIndex(await evidenceTable.getFieldMetaList())
-      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
 
-      const krRecords = await krTable.getRecords({ pageSize: 5000 })
+      const okrRecords = await okrTable.getRecords({ pageSize: 5000 })
       const evidenceRecords = await evidenceTable.getRecords({ pageSize: 5000 })
-      const actionRecords = await actionTable.getRecords({ pageSize: 5000 })
 
-      const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
-      const krProgressId = resolveFieldId(krFields.byName.get('Progress')!)
-      const krConfidenceId = resolveFieldId(krFields.byName.get('Confidence')!)
-      const krDueId = resolveFieldId(krFields.byName.get('Due_Date')!)
+      const { krTitleId, actionTitleId, actionProgressId } = getOkrPlanFieldIds(okrFields)
       const evidenceKrId = resolveFieldId(evidenceFields.byName.get('KeyResult')!)
       const evidenceDateId = resolveFieldId(evidenceFields.byName.get('Date')!)
-      const actionKrId = resolveFieldId(actionFields.byName.get('KeyResult')!)
+      const evidenceActionId = resolveFieldId(evidenceFields.byName.get('Action')!)
 
       const evidenceMap = new Map<string, number>()
       const evidenceList = asArray<{ recordId: string; fields: Record<string, unknown> }>(evidenceRecords.records)
-      const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
-      const krRecordList = asArray<{ recordId: string; fields: Record<string, unknown> }>(krRecords.records)
+      const okrList = asArray<{ recordId: string; fields: Record<string, unknown> }>(okrRecords.records)
+
+      const okrKrMap = new Map<string, string>()
+      const okrActionMap = new Map<string, string>()
+      okrList.forEach((record) => {
+        const krTitle = krTitleId ? toText(record.fields[krTitleId]) : ''
+        const actionTitle = actionTitleId ? toText(record.fields[actionTitleId]) : ''
+        if (krTitle) okrKrMap.set(record.recordId, krTitle)
+        if (actionTitle) okrActionMap.set(record.recordId, actionTitle)
+      })
 
       evidenceList.forEach((record) => {
-        const krLinks = toLinkIds(record.fields[evidenceKrId])
+        const krLinks = evidenceKrId ? toLinkIds(record.fields[evidenceKrId]) : []
+        const actionLinks = evidenceActionId ? toLinkIds(record.fields[evidenceActionId]) : []
         const date = record.fields[evidenceDateId] as number | undefined
-        if (krLinks.length === 0 || !date) return
-        krLinks.forEach((krId) => {
-          const prev = evidenceMap.get(krId) ?? 0
-          if (date > prev) {
-            evidenceMap.set(krId, date)
-          }
+        if (!date) return
+        const targets = new Set<string>()
+        krLinks.forEach((id) => targets.add(id))
+        actionLinks.forEach((id) => targets.add(id))
+        targets.forEach((id) => {
+          const krTitle = okrKrMap.get(id)
+          if (!krTitle) return
+          const prev = evidenceMap.get(krTitle) ?? 0
+          if (date > prev) evidenceMap.set(krTitle, date)
         })
       })
 
       let unaligned = 0
-      actionList.forEach((record) => {
-        const links = toLinkIds(record.fields[actionKrId])
-        if (links.length === 0) {
-          unaligned += 1
-        }
+      okrList.forEach((record) => {
+        const actionTitle = actionTitleId ? toText(record.fields[actionTitleId]) : ''
+        const krTitle = krTitleId ? toText(record.fields[krTitleId]) : ''
+        if (actionTitle && !krTitle) unaligned += 1
       })
       setUnalignedActions(unaligned)
 
       const now = Date.now()
       const dayMs = 24 * 60 * 60 * 1000
-      const krList = krRecordList.map((record) => {
-        const id = record.recordId
-        const title = toText(record.fields[krTitleId]) || '未命名 KR'
-        const progress = record.fields[krProgressId] as number | undefined
-        const confidence = record.fields[krConfidenceId] as number | undefined
-        const due = record.fields[krDueId] as number | undefined
-        const lastEvidence = evidenceMap.get(id)
+      const krTitles = Array.from(
+        new Set(okrList.map((record) => (krTitleId ? toText(record.fields[krTitleId]) : '')).filter(Boolean))
+      )
+      const krList = krTitles.map((title) => {
+        const lastEvidence = evidenceMap.get(title)
         const daysSinceEvidence = lastEvidence ? Math.floor((now - lastEvidence) / dayMs) : null
-        return { id, title, progress, confidence, due, daysSinceEvidence }
+        let progress: number | undefined
+        if (actionProgressId) {
+          const values = okrList
+            .filter((record) => (krTitleId ? toText(record.fields[krTitleId]) : '') === title)
+            .map((record) => record.fields[actionProgressId] as number | undefined)
+            .filter((val): val is number => typeof val === 'number')
+          if (values.length > 0) {
+            progress = Math.round(values.reduce((sum, val) => sum + val, 0) / values.length)
+          }
+        }
+        return { id: title, title, progress, confidence: undefined, due: undefined, daysSinceEvidence }
       })
 
       const driftCount = krList.filter((kr) => kr.daysSinceEvidence === null || kr.daysSinceEvidence >= 2).length
@@ -708,32 +753,15 @@ function App() {
     setTodayLoading(true)
     setTodayError(null)
     try {
-      const actionTable = await getTableByName('Actions')
-      const krTable = await getTableByName('KeyResults')
-      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
-      const krFields = buildFieldIndex(await krTable.getFieldMetaList())
+      const okrTable = await getTableByName('OKRPlan')
+      const okrFields = buildFieldIndex(await okrTable.getFieldMetaList())
+      const okrRecords = await okrTable.getRecords({ pageSize: 5000 })
 
-      const actionRecords = await actionTable.getRecords({ pageSize: 5000 })
-      const krRecords = await krTable.getRecords({ pageSize: 5000 })
-
-      const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
-      const krMap = new Map<string, string>()
-      const krRecordList = asArray<{ recordId: string; fields: Record<string, unknown> }>(krRecords.records)
-      krRecordList.forEach((record) => {
-        const title = toText(record.fields[krTitleId])
-        if (title) {
-          krMap.set(record.recordId, title)
-        }
-      })
-
-      const statusFieldId = resolveFieldId(actionFields.byName.get('Status')!)
-      const titleFieldId = resolveFieldId(actionFields.byName.get('Action_Title')!)
-      const minutesFieldId = resolveFieldId(actionFields.byName.get('Est_Minutes')!)
-      const planStartField = actionFields.byName.get('Plan_Start') ?? actionFields.byName.get('Plan_Date')
-      const planEndField = actionFields.byName.get('Plan_End') ?? actionFields.byName.get('Plan_Date')
-      const planStartFieldId = planStartField ? resolveFieldId(planStartField) : ''
-      const planEndFieldId = planEndField ? resolveFieldId(planEndField) : ''
-      const krLinkFieldId = resolveFieldId(actionFields.byName.get('KeyResult')!)
+      const { actionTitleId, statusId, estMinutesId, planStartId, planEndId, krTitleId } = getOkrPlanFieldIds(okrFields)
+      const statusFieldName = resolveFieldNameByCandidates(okrFields, ['Action Status', 'Action_Status', 'Status'])
+      const statusFieldName = resolveFieldNameByCandidates(okrFields, ['Action Status', 'Action_Status', 'Status'])
+      setActionStatusAvailable(Boolean(statusId))
+      setActionStatusAvailable(Boolean(statusId))
 
       const todayItems: Array<{
         id: string
@@ -746,23 +774,23 @@ function App() {
       }> = []
       const backlogItems: Array<{ value: string; label: string }> = []
 
-      const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
-      actionList.forEach((record) => {
-        const statusValue = record.fields[statusFieldId]
-        const statusLabel = resolveSelectLabel(statusValue, 'Status', actionFields.optionIdMap)
-        const title = toText(record.fields[titleFieldId]) || '未命名 Action'
-        const minutes = record.fields[minutesFieldId] as number | undefined
-        const planStart = planStartFieldId ? (record.fields[planStartFieldId] as number | undefined) : undefined
-        const planEnd = planEndFieldId ? (record.fields[planEndFieldId] as number | undefined) : undefined
-        const krLinks = toLinkIds(record.fields[krLinkFieldId])
-        const krId = krLinks.length > 0 ? krLinks[0] : undefined
-        const krTitle = krId ? krMap.get(krId) : undefined
+      const okrList = asArray<{ recordId: string; fields: Record<string, unknown> }>(okrRecords.records)
+      okrList.forEach((record) => {
+        const title = actionTitleId ? toText(record.fields[actionTitleId]) : ''
+        if (!title) return
+        const statusLabel = statusId && statusFieldName
+          ? resolveSelectLabel(record.fields[statusId], statusFieldName, okrFields.optionIdMap)
+          : ''
+        const minutes = estMinutesId ? (record.fields[estMinutesId] as number | undefined) : undefined
+        const planStart = planStartId ? (record.fields[planStartId] as number | undefined) : undefined
+        const planEnd = planEndId ? (record.fields[planEndId] as number | undefined) : undefined
+        const krTitle = krTitleId ? toText(record.fields[krTitleId]) : undefined
         const plannedToday = isTodayWithinRange(planStart, planEnd)
 
-        if (statusLabel === 'Today') {
-          todayItems.push({ id: record.recordId, title, minutes, planStart, planEnd, krId, krTitle })
+        if (statusLabel === 'Today' || (!statusId && plannedToday)) {
+          todayItems.push({ id: record.recordId, title, minutes, planStart, planEnd, krId: record.recordId, krTitle })
         }
-        if (statusLabel === 'Backlog') {
+        if (statusLabel === 'Backlog' || (!statusId && !plannedToday)) {
           const dateLabel =
             planStart || planEnd
               ? `${planStart ? new Date(planStart).toLocaleDateString('zh-CN') : ''}${
@@ -809,34 +837,21 @@ function App() {
     setBankLoading(true)
     setBankError(null)
     try {
-      const actionTable = await getTableByName('Actions')
-      const krTable = await getTableByName('KeyResults')
-      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
-      const krFields = buildFieldIndex(await krTable.getFieldMetaList())
+      const okrTable = await getTableByName('OKRPlan')
+      const okrFields = buildFieldIndex(await okrTable.getFieldMetaList())
+      const okrRecords = await okrTable.getRecords({ pageSize: 5000 })
 
-      const actionRecords = await actionTable.getRecords({ pageSize: 5000 })
-      const krRecords = await krTable.getRecords({ pageSize: 5000 })
-
-      const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
-      const krMap = new Map<string, string>()
+      const { actionTitleId, statusId, estMinutesId, planStartId, planEndId, krTitleId } = getOkrPlanFieldIds(okrFields)
       const krOptions: Array<{ value: string; label: string }> = [{ value: 'all', label: '全部 KR' }]
-      const krList = asArray<{ recordId: string; fields: Record<string, unknown> }>(krRecords.records)
-      krList.forEach((record) => {
-        const title = toText(record.fields[krTitleId])
-        if (!title) return
-        krMap.set(record.recordId, title)
-        krOptions.push({ value: record.recordId, label: title })
+      const okrList = asArray<{ recordId: string; fields: Record<string, unknown> }>(okrRecords.records)
+      const krSet = new Set<string>()
+      okrList.forEach((record) => {
+        const title = krTitleId ? toText(record.fields[krTitleId]) : ''
+        if (!title || krSet.has(title)) return
+        krSet.add(title)
+        krOptions.push({ value: title, label: title })
       })
       setBankKrs(krOptions)
-
-      const statusFieldId = resolveFieldId(actionFields.byName.get('Status')!)
-      const titleFieldId = resolveFieldId(actionFields.byName.get('Action_Title')!)
-      const minutesFieldId = resolveFieldId(actionFields.byName.get('Est_Minutes')!)
-      const planStartField = actionFields.byName.get('Plan_Start') ?? actionFields.byName.get('Plan_Date')
-      const planEndField = actionFields.byName.get('Plan_End') ?? actionFields.byName.get('Plan_Date')
-      const planStartFieldId = planStartField ? resolveFieldId(planStartField) : ''
-      const planEndFieldId = planEndField ? resolveFieldId(planEndField) : ''
-      const krLinkFieldId = resolveFieldId(actionFields.byName.get('KeyResult')!)
 
       const items: Array<{
         id: string
@@ -848,19 +863,18 @@ function App() {
         krTitle?: string
       }> = []
 
-      const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
-      actionList.forEach((record) => {
-        const statusValue = record.fields[statusFieldId]
-        const statusLabel = resolveSelectLabel(statusValue, 'Status', actionFields.optionIdMap)
-        if (statusLabel !== 'Backlog') return
-        const title = toText(record.fields[titleFieldId]) || '未命名 Action'
-        const minutes = record.fields[minutesFieldId] as number | undefined
-        const planStart = planStartFieldId ? (record.fields[planStartFieldId] as number | undefined) : undefined
-        const planEnd = planEndFieldId ? (record.fields[planEndFieldId] as number | undefined) : undefined
-        const krLinks = toLinkIds(record.fields[krLinkFieldId])
-        const krId = krLinks.length > 0 ? krLinks[0] : undefined
-        const krTitle = krId ? krMap.get(krId) : undefined
-        items.push({ id: record.recordId, title, minutes, planStart, planEnd, krId, krTitle })
+      okrList.forEach((record) => {
+        const title = actionTitleId ? toText(record.fields[actionTitleId]) : ''
+        if (!title) return
+        const statusLabel = statusId && statusFieldName
+          ? resolveSelectLabel(record.fields[statusId], statusFieldName, okrFields.optionIdMap)
+          : ''
+        if (statusId && statusLabel !== 'Backlog') return
+        const minutes = estMinutesId ? (record.fields[estMinutesId] as number | undefined) : undefined
+        const planStart = planStartId ? (record.fields[planStartId] as number | undefined) : undefined
+        const planEnd = planEndId ? (record.fields[planEndId] as number | undefined) : undefined
+        const krTitle = krTitleId ? toText(record.fields[krTitleId]) : undefined
+        items.push({ id: record.recordId, title, minutes, planStart, planEnd, krTitle })
       })
 
       setBankActions(items)
@@ -874,14 +888,18 @@ function App() {
   }
 
   const updateActionStatus = async (recordId: string, status: 'Today' | 'Backlog' | 'Done') => {
-    const actionTable = await getTableByName('Actions')
-    if (!actionTable.setRecord) {
+    const okrTable = await getTableByName('OKRPlan')
+    if (!okrTable.setRecord) {
       throw new Error('当前环境不支持更新记录')
     }
-    const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
-    const statusFieldId = resolveFieldId(actionFields.byName.get('Status')!)
-    const statusValue = selectValue('Status', status, actionFields.optionMap)
-    await actionTable.setRecord(recordId, { fields: { [statusFieldId]: statusValue } })
+    const okrFields = buildFieldIndex(await okrTable.getFieldMetaList())
+    const statusFieldName = resolveFieldNameByCandidates(okrFields, ['Action Status', 'Action_Status', 'Status'])
+    const statusFieldId = statusFieldName ? resolveFieldId(okrFields.byName.get(statusFieldName)!) : ''
+    if (!statusFieldId) {
+      throw new Error('OKRPlan 缺少 Action Status 字段')
+    }
+    const statusValue = selectValue(statusFieldName, status, okrFields.optionMap)
+    await okrTable.setRecord(recordId, { fields: { [statusFieldId]: statusValue } })
   }
 
   const createEvidence = async (params: {
@@ -908,7 +926,7 @@ function App() {
     if (params.link) {
       payload[resolveFieldId(evidenceFields.byName.get('Link')!)] = params.link
     }
-    if (params.krId) {
+    if (params.krId && evidenceFields.byName.get('KeyResult')) {
       payload[resolveFieldId(evidenceFields.byName.get('KeyResult')!)] = [params.krId]
     }
     if (params.actionId) {
@@ -929,42 +947,27 @@ function App() {
     setEvidenceError(null)
     try {
       const evidenceTable = await getTableByName('Evidence')
-      const actionTable = await getTableByName('Actions')
-      const krTable = await getTableByName('KeyResults')
+      const okrTable = await getTableByName('OKRPlan')
       const focusTable = await getTableByName('FocusBlocks')
 
       const evidenceFields = buildFieldIndex(await evidenceTable.getFieldMetaList())
-      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
-      const krFields = buildFieldIndex(await krTable.getFieldMetaList())
+      const okrFields = buildFieldIndex(await okrTable.getFieldMetaList())
       const focusFields = buildFieldIndex(await focusTable.getFieldMetaList())
 
-      const krRecords = await krTable.getRecords({ pageSize: 5000 })
-      const actionRecords = await actionTable.getRecords({ pageSize: 5000 })
+      const okrRecords = await okrTable.getRecords({ pageSize: 5000 })
       const evidenceRecords = await evidenceTable.getRecords({ pageSize: 5000 })
       const focusRecords = await focusTable.getRecords({ pageSize: 5000 })
 
-      const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
-      const krMap = new Map<string, string>()
-      const krList = asArray<{ recordId: string; fields: Record<string, unknown> }>(krRecords.records)
-      krList.forEach((record) => {
-        const title = toText(record.fields[krTitleId])
-        if (title) {
-          krMap.set(record.recordId, title)
-        }
-      })
-
-      const actionTitleId = resolveFieldId(actionFields.byName.get('Action_Title')!)
-      const actionKrId = resolveFieldId(actionFields.byName.get('KeyResult')!)
+      const { actionTitleId, krTitleId } = getOkrPlanFieldIds(okrFields)
       const actionMap: Record<string, { title: string; krId?: string; krTitle?: string }> = {}
       const actionOptions: Array<{ value: string; label: string }> = []
 
-      const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
-      actionList.forEach((record) => {
-        const title = toText(record.fields[actionTitleId]) || '未命名 Action'
-        const krLinks = toLinkIds(record.fields[actionKrId])
-        const krId = krLinks.length > 0 ? krLinks[0] : undefined
-        const krTitle = krId ? krMap.get(krId) : undefined
-        actionMap[record.recordId] = { title, krId, krTitle }
+      const okrList = asArray<{ recordId: string; fields: Record<string, unknown> }>(okrRecords.records)
+      okrList.forEach((record) => {
+        const title = actionTitleId ? toText(record.fields[actionTitleId]) : ''
+        if (!title) return
+        const krTitle = krTitleId ? toText(record.fields[krTitleId]) : undefined
+        actionMap[record.recordId] = { title, krId: record.recordId, krTitle }
         actionOptions.push({ value: record.recordId, label: title })
       })
 
@@ -1001,7 +1004,9 @@ function App() {
       const evidenceTitleId = resolveFieldId(evidenceFields.byName.get('Evidence_Title')!)
       const evidenceTypeId = resolveFieldId(evidenceFields.byName.get('Evidence_Type')!)
       const evidenceDateId = resolveFieldId(evidenceFields.byName.get('Date')!)
-      const evidenceKrId = resolveFieldId(evidenceFields.byName.get('KeyResult')!)
+      const evidenceKrId = evidenceFields.byName.get('KeyResult')
+        ? resolveFieldId(evidenceFields.byName.get('KeyResult')!)
+        : ''
       const evidenceActionId = resolveFieldId(evidenceFields.byName.get('Action')!)
 
       const evidenceList = asArray<{ recordId: string; fields: Record<string, unknown> }>(evidenceRecords.records)
@@ -1010,9 +1015,9 @@ function App() {
           const title = toText(record.fields[evidenceTitleId]) || '未命名证据'
           const typeLabel = resolveSelectLabel(record.fields[evidenceTypeId], 'Evidence_Type', evidenceFields.optionIdMap)
           const date = record.fields[evidenceDateId] as number | undefined
-          const krLinks = toLinkIds(record.fields[evidenceKrId])
+          const krLinks = evidenceKrId ? toLinkIds(record.fields[evidenceKrId]) : []
           const actionLinks = toLinkIds(record.fields[evidenceActionId])
-          const krTitle = krLinks.length > 0 ? krMap.get(krLinks[0]) : undefined
+          const krTitle = krLinks.length > 0 ? actionMap[krLinks[0]]?.krTitle : undefined
           const actionTitle = actionLinks.length > 0 ? actionMap[actionLinks[0]]?.title : undefined
           return { title, type: typeLabel, date, krTitle, actionTitle }
         })
@@ -1037,61 +1042,76 @@ function App() {
     setDriftLoading(true)
     setDriftError(null)
     try {
-      const krTable = await getTableByName('KeyResults')
+      const okrTable = await getTableByName('OKRPlan')
       const evidenceTable = await getTableByName('Evidence')
-      const actionTable = await getTableByName('Actions')
 
-      const krFields = buildFieldIndex(await krTable.getFieldMetaList())
+      const okrFields = buildFieldIndex(await okrTable.getFieldMetaList())
       const evidenceFields = buildFieldIndex(await evidenceTable.getFieldMetaList())
-      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
 
-      const krRecords = await krTable.getRecords({ pageSize: 5000 })
+      const okrRecords = await okrTable.getRecords({ pageSize: 5000 })
       const evidenceRecords = await evidenceTable.getRecords({ pageSize: 5000 })
-      const actionRecords = await actionTable.getRecords({ pageSize: 5000 })
 
-      const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
-      const krProgressId = resolveFieldId(krFields.byName.get('Progress')!)
-      const krConfidenceId = resolveFieldId(krFields.byName.get('Confidence')!)
-      const evidenceKrId = resolveFieldId(evidenceFields.byName.get('KeyResult')!)
+      const { krTitleId } = getOkrPlanFieldIds(okrFields)
+      const evidenceKrId = evidenceFields.byName.get('KeyResult')
+        ? resolveFieldId(evidenceFields.byName.get('KeyResult')!)
+        : ''
+      const evidenceActionId = resolveFieldId(evidenceFields.byName.get('Action')!)
       const evidenceDateId = resolveFieldId(evidenceFields.byName.get('Date')!)
-      const actionKrId = resolveFieldId(actionFields.byName.get('KeyResult')!)
 
       const evidenceMap = new Map<string, number>()
       const evidenceList = asArray<{ recordId: string; fields: Record<string, unknown> }>(evidenceRecords.records)
-      const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
-      const krRecordList = asArray<{ recordId: string; fields: Record<string, unknown> }>(krRecords.records)
+      const okrList = asArray<{ recordId: string; fields: Record<string, unknown> }>(okrRecords.records)
+
+      const okrKrMap = new Map<string, string>()
+      okrList.forEach((record) => {
+        const krTitle = krTitleId ? toText(record.fields[krTitleId]) : ''
+        if (krTitle) okrKrMap.set(record.recordId, krTitle)
+      })
 
       evidenceList.forEach((record) => {
-        const krLinks = toLinkIds(record.fields[evidenceKrId])
+        const krLinks = evidenceKrId ? toLinkIds(record.fields[evidenceKrId]) : []
+        const actionLinks = toLinkIds(record.fields[evidenceActionId])
         const date = record.fields[evidenceDateId] as number | undefined
-        if (krLinks.length === 0 || !date) return
-        krLinks.forEach((krId) => {
-          const prev = evidenceMap.get(krId) ?? 0
-          if (date > prev) {
-            evidenceMap.set(krId, date)
-          }
+        if (!date) return
+        const targets = new Set<string>()
+        krLinks.forEach((id) => targets.add(id))
+        actionLinks.forEach((id) => targets.add(id))
+        targets.forEach((id) => {
+          const krTitle = okrKrMap.get(id)
+          if (!krTitle) return
+          const prev = evidenceMap.get(krTitle) ?? 0
+          if (date > prev) evidenceMap.set(krTitle, date)
         })
       })
 
       let unaligned = 0
-      actionList.forEach((record) => {
-        const links = toLinkIds(record.fields[actionKrId])
-        if (links.length === 0) {
-          unaligned += 1
-        }
+      okrList.forEach((record) => {
+        const actionTitle = toText(record.fields[resolveFieldIdByCandidates(okrFields, ['Actions', 'Action_Title', 'Action'])])
+        const krTitle = krTitleId ? toText(record.fields[krTitleId]) : ''
+        if (actionTitle && !krTitle) unaligned += 1
       })
       setUnalignedActions(unaligned)
 
       const now = Date.now()
       const dayMs = 24 * 60 * 60 * 1000
-      const krList = krRecordList.map((record) => {
-        const id = record.recordId
-        const title = toText(record.fields[krTitleId]) || '未命名 KR'
-        const progress = record.fields[krProgressId] as number | undefined
-        const confidence = record.fields[krConfidenceId] as number | undefined
-        const lastEvidence = evidenceMap.get(id)
+      const actionProgressId = resolveFieldIdByCandidates(okrFields, ['Action Progress'])
+      const krTitles = Array.from(
+        new Set(okrList.map((record) => (krTitleId ? toText(record.fields[krTitleId]) : '')).filter(Boolean))
+      )
+      const krList = krTitles.map((title) => {
+        const lastEvidence = evidenceMap.get(title)
         const daysSinceEvidence = lastEvidence ? Math.floor((now - lastEvidence) / dayMs) : null
-        return { id, title, progress, confidence, daysSinceEvidence }
+        let progress: number | undefined
+        if (actionProgressId) {
+          const values = okrList
+            .filter((record) => (krTitleId ? toText(record.fields[krTitleId]) : '') === title)
+            .map((record) => record.fields[actionProgressId] as number | undefined)
+            .filter((val): val is number => typeof val === 'number')
+          if (values.length > 0) {
+            progress = Math.round(values.reduce((sum, val) => sum + val, 0) / values.length)
+          }
+        }
+        return { id: title, title, progress, confidence: undefined, daysSinceEvidence }
       })
 
       const driftItems = krList
@@ -1100,7 +1120,7 @@ function App() {
           const aScore = a.daysSinceEvidence === null ? Number.POSITIVE_INFINITY : a.daysSinceEvidence
           const bScore = b.daysSinceEvidence === null ? Number.POSITIVE_INFINITY : b.daysSinceEvidence
           if (aScore !== bScore) return bScore - aScore
-          return (a.progress ?? 0) - (b.progress ?? 0)
+          return 0
         })
       setDriftList(driftItems)
       setDriftKrsCount(driftItems.length)
@@ -1122,19 +1142,19 @@ function App() {
     setFocusError(null)
     try {
       const focusTable = await getTableByName('FocusBlocks')
-      const actionTable = await getTableByName('Actions')
+      const okrTable = await getTableByName('OKRPlan')
 
       const focusFields = buildFieldIndex(await focusTable.getFieldMetaList())
-      const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
+      const okrFields = buildFieldIndex(await okrTable.getFieldMetaList())
 
       const focusRecords = await focusTable.getRecords({ pageSize: 5000 })
-      const actionRecords = await actionTable.getRecords({ pageSize: 5000 })
+      const okrRecords = await okrTable.getRecords({ pageSize: 5000 })
 
-      const actionTitleId = resolveFieldId(actionFields.byName.get('Action_Title')!)
+      const { actionTitleId } = getOkrPlanFieldIds(okrFields)
       const actionMap = new Map<string, string>()
-      const actionList = asArray<{ recordId: string; fields: Record<string, unknown> }>(actionRecords.records)
-      actionList.forEach((record) => {
-        const title = toText(record.fields[actionTitleId])
+      const okrList = asArray<{ recordId: string; fields: Record<string, unknown> }>(okrRecords.records)
+      okrList.forEach((record) => {
+        const title = actionTitleId ? toText(record.fields[actionTitleId]) : ''
         if (title) {
           actionMap.set(record.recordId, title)
         }
@@ -1183,24 +1203,26 @@ function App() {
     setIdeasError(null)
     try {
       const ideasTable = await getTableByName('Ideas')
-      const krTable = await getTableByName('KeyResults')
+      const okrTable = await getTableByName('OKRPlan')
       const ideasFields = buildFieldIndex(await ideasTable.getFieldMetaList())
-      const krFields = buildFieldIndex(await krTable.getFieldMetaList())
+      const okrFields = buildFieldIndex(await okrTable.getFieldMetaList())
 
       const ideasRecords = await ideasTable.getRecords({ pageSize: 5000 })
-      const krRecords = await krTable.getRecords({ pageSize: 5000 })
+      const okrRecords = await okrTable.getRecords({ pageSize: 5000 })
 
-      const krTitleId = resolveFieldId(krFields.byName.get('KR_Title')!)
-      const krMap = new Map<string, string>()
-      const krOptions: Array<{ value: string; label: string }> = []
-      const krList = asArray<{ recordId: string; fields: Record<string, unknown> }>(krRecords.records)
-      krList.forEach((record) => {
-        const title = toText(record.fields[krTitleId])
-        if (!title) return
-        krMap.set(record.recordId, title)
-        krOptions.push({ value: record.recordId, label: title })
+      const { krTitleId } = getOkrPlanFieldIds(okrFields)
+      const okrOptions: Array<{ value: string; label: string }> = []
+      const krIdToTitle: Record<string, string> = {}
+      const okrList = asArray<{ recordId: string; fields: Record<string, unknown> }>(okrRecords.records)
+      okrList.forEach((record) => {
+        const krTitle = krTitleId ? toText(record.fields[krTitleId]) : ''
+        if (!krTitle) return
+        if (krIdToTitle[record.recordId]) return
+        krIdToTitle[record.recordId] = krTitle
+        okrOptions.push({ value: record.recordId, label: krTitle })
       })
-      setIdeasKrOptions(krOptions)
+      setIdeasKrOptions(okrOptions)
+      setOkrKrTitleById(krIdToTitle)
 
       const titleId = resolveFieldId(ideasFields.byName.get('Idea_Title')!)
       const minutesId = resolveFieldId(ideasFields.byName.get('Est_Minutes')!)
@@ -1213,7 +1235,7 @@ function App() {
         const minutes = record.fields[minutesId] as number | undefined
         const status = resolveSelectLabel(record.fields[statusId], 'Status', ideasFields.optionIdMap)
         const krLinks = toLinkIds(record.fields[krIdField])
-        const krTitle = krLinks.length > 0 ? krMap.get(krLinks[0]) : undefined
+        const krTitle = krLinks.length > 0 ? krIdToTitle[krLinks[0]] : undefined
         return { id: record.recordId, title, minutes, status, krTitle }
       })
 
@@ -1344,7 +1366,7 @@ function App() {
         </Card>
         <Card title={`Backlog 动作（${bankActions.length}）`} loading={bankLoading}>
           <List
-            dataSource={bankActions.filter((item) => bankSelectedKr === 'all' || item.krId === bankSelectedKr)}
+            dataSource={bankActions.filter((item) => bankSelectedKr === 'all' || item.krTitle === bankSelectedKr)}
             locale={{ emptyText: '暂无 Backlog 动作' }}
             renderItem={(item) => (
               <List.Item
@@ -1352,6 +1374,7 @@ function App() {
                     <Button
                       key="pull"
                       type="link"
+                      disabled={!actionStatusAvailable}
                       onClick={async () => {
                         try {
                           await updateActionStatus(item.id, 'Today')
@@ -1490,6 +1513,9 @@ function App() {
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <Card title="新建 Action（护栏）">
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            {!actionStatusAvailable && (
+              <Alert type="warning" showIcon message="OKRPlan 缺少 Action Status 字段，无法创建带状态的 Action。" />
+            )}
             <Input
               placeholder="Action 标题"
               value={guardrailTitle}
@@ -1522,23 +1548,30 @@ function App() {
                     return
                   }
                   try {
-                    const actionTable = await getTableByName('Actions')
-                    const actionFields = buildFieldIndex(await actionTable.getFieldMetaList())
+                    const okrTable = await getTableByName('OKRPlan')
+                    const okrFields = buildFieldIndex(await okrTable.getFieldMetaList())
+                    const actionTitleId = resolveFieldIdByCandidates(okrFields, ['Actions', 'Action_Title', 'Action'])
+                    const estMinutesId = resolveFieldIdByCandidates(okrFields, ['Action Est Minutes', 'Action_Est_Minutes', 'Est_Minutes'])
+                    const statusFieldName = resolveFieldNameByCandidates(okrFields, ['Action Status', 'Action_Status', 'Status'])
+                    const statusId = statusFieldName ? resolveFieldId(okrFields.byName.get(statusFieldName)!) : ''
+                    const krTitleId = resolveFieldIdByCandidates(okrFields, ['Key Results', 'KR_Title', 'KR'])
+                    if (!actionTitleId) {
+                      throw new Error('OKRPlan 缺少 Actions 字段')
+                    }
+                    if (!statusId) {
+                      throw new Error('OKRPlan 缺少 Action Status 字段')
+                    }
                     const payload: Record<string, unknown> = {}
-                    if (actionFields.primaryFieldId) {
-                      payload[actionFields.primaryFieldId] = guardrailTitle
+                    if (okrFields.primaryFieldId) {
+                      payload[okrFields.primaryFieldId] = guardrailTitle
                     }
-                    payload[resolveFieldId(actionFields.byName.get('Action_Title')!)] = guardrailTitle
-                    payload[resolveFieldId(actionFields.byName.get('Est_Minutes')!)] = guardrailMinutes
-                    payload[resolveFieldId(actionFields.byName.get('Status')!)] = selectValue(
-                      'Status',
-                      'Backlog',
-                      actionFields.optionMap
-                    )
-                    if (guardrailKrId) {
-                      payload[resolveFieldId(actionFields.byName.get('KeyResult')!)] = [guardrailKrId]
+                    payload[actionTitleId] = guardrailTitle
+                    if (estMinutesId) payload[estMinutesId] = guardrailMinutes
+                    payload[statusId] = selectValue(statusFieldName, 'Backlog', okrFields.optionMap)
+                    if (guardrailKrId && krTitleId) {
+                      payload[krTitleId] = okrKrTitleById[guardrailKrId] || ''
                     }
-                    await actionTable.addRecord({ fields: payload })
+                    await okrTable.addRecord({ fields: payload })
                     message.success('Action 已创建')
                     setGuardrailTitle('')
                     setGuardrailMinutes(null)
@@ -1730,14 +1763,13 @@ function App() {
     >
       <OperationRunner
         title="确认生成 Demo 数据"
-        description="用于快速生成一套 OKR 演示数据（O1 + 3 个 KR + Actions/Evidence）。"
+        description="用于快速生成一套 OKR 演示数据（OKRPlan + Evidence + Ideas）。"
         buttonLabel="生成 Demo OKR 数据"
         runningLabel="正在生成..."
         disabled={!isBitable}
         totalSteps={5}
         steps={[
-          '创建 Objective',
-          '创建 3 条 KeyResults',
+          '读取 OKRPlan 字段',
           '创建 6 条 Actions',
           '创建 2 条 Evidence',
           '创建 Idea',
@@ -1870,6 +1902,13 @@ function App() {
             {focusError && <Alert type="error" showIcon message={focusError} />}
             <Card title="今日计划">
               <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                {!actionStatusAvailable && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="OKRPlan 缺少 Action Status 字段，无法更新状态，仅展示计划日期内任务。"
+                  />
+                )}
                 <Space wrap>
                   <Button
                     onClick={async () => {
@@ -1893,7 +1932,7 @@ function App() {
                   />
                   <Button
                     type="primary"
-                    disabled={!selectedBacklogId}
+                    disabled={!selectedBacklogId || !actionStatusAvailable}
                     onClick={async () => {
                       if (!selectedBacklogId) return
                       try {
@@ -1920,11 +1959,12 @@ function App() {
                 renderItem={(item) => (
                   <List.Item
                     actions={[
-                      <Button
-                        key="done"
-                        type="link"
-                        onClick={() => {
-                          setCompleteActionId(item.id)
+                  <Button
+                    key="done"
+                    type="link"
+                    disabled={!actionStatusAvailable}
+                    onClick={() => {
+                      setCompleteActionId(item.id)
                           setCompleteActionTitle(item.title)
                           setCompleteActionKrId(item.krId)
                           setCompleteEvidenceTitle('')
@@ -1936,10 +1976,11 @@ function App() {
                       >
                         标记完成
                       </Button>,
-                      <Button
-                        key="backlog"
-                        type="link"
-                        onClick={async () => {
+                  <Button
+                    key="backlog"
+                    type="link"
+                    disabled={!actionStatusAvailable}
+                    onClick={async () => {
                           try {
                             await updateActionStatus(item.id, 'Backlog')
                             message.info('已移回 Backlog')
@@ -2016,6 +2057,9 @@ function App() {
                       payload[resolveFieldId(focusFields.byName.get('Minutes')!)] = focusMinutes
                       payload[resolveFieldId(focusFields.byName.get('Goal')!)] = focusGoal
                       payload[resolveFieldId(focusFields.byName.get('Action')!)] = [focusActionId]
+                      if (focusFields.byName.get('KR')) {
+                        payload[resolveFieldId(focusFields.byName.get('KR')!)] = [focusActionId]
+                      }
                       if (actionMeta?.krId) {
                         payload[resolveFieldId(focusFields.byName.get('KR')!)] = [actionMeta.krId]
                       }

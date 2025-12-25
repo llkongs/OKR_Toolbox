@@ -6,9 +6,9 @@
 1) 运行 `scripts/init_base.sh` 创建表结构（含 FocusBlocks / Scorecard）。
 2) （可选）运行 `scripts/seed_mock_data.sh` 导入演示数据。
 
-## 1. 录入 OKR
-- 在 `Objectives` 表创建目标（O_Title、Owner、Cycle）。
-- 在 `KeyResults` 表创建 3-5 条 KR，并关联到 Objective。
+## 1. 录入 OKR（OKRPlan 单表）
+- 在 `OKRPlan` 表填写 Objectives / Key Results / Actions / Owner / Cycle。
+- 每条记录代表“某个 KR 下的一条 Action”。
 - 每个 KR 需要明确的可交付结果，而不是“推进一下”。
 
 ## 2. KR 截止日期
@@ -16,7 +16,7 @@
 - 截止日期是所有 Action 的时间上限。
 
 ## 3. Action 计划日期
-- 在 `Actions` 表为每个 KR 建 5-10 条“可执行动作”，并填写计划开始/完成日期（Plan_Start/Plan_End）。
+- 在 `OKRPlan` 表为每个 KR 建 5-10 条“可执行动作”，并填写计划开始/完成日期（预期开始/预期结束）。
 - 每个 Action 的计划完成日期必须早于对应 KR 的截止日期。
 - 粒度建议 30-90 分钟，越具体越好（例如“跑对照 SQL”“写 1 页结论 memo”）。
 - 建议把 1 周内要完成的动作都规划出来，避免临时起意打断主线。
