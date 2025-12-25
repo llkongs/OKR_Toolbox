@@ -41,14 +41,16 @@ Users can write OKR docs (O/KR/owner/timeline), but execution drifts:
 
 ### Must-have features
 1) OKR modeling (Objectives, KeyResults, owners, cycle, confidence).
-2) Evidence system (Evidence records linked to KR).
-3) Action Bank + Daily Pull (Actions linked to KR, “Today” selection).
-4) Parking Lot (Ideas not linked to KR by default).
-5) Drift detection (at least):
-   - Days since last evidence per KR (or per “Top KR”).
-   - Unaligned actions count/time (Actions without KR link).
-6) Weekly ops (WeeklyPlan rows per KR: weekly deliverable + risk + budget).
-7) Basic guardrails:
+2) Plan system (weekly plan per KR; weekly deliverable + expected progress + risk).
+3) Action Bank + Daily Pull (Actions linked to Plan/KR, “Today” selection).
+4) Focus Block (deep work blocks linked to Action/Plan).
+5) Evidence system (Evidence linked to KR/Action/Focus Block, with quality rating).
+6) Scorecard (weekly scoring with deductions + correction actions).
+7) Drift detection (at least):
+   - Days since last evidence per KR.
+   - Unaligned actions count (Actions without KR link).
+   - Low scorecard weeks (score below threshold).
+8) Parking Lot (Ideas not linked to KR by default) + guardrails:
    - If a new task > 30 min and has no KR link -> must go to Parking Lot or be linked.
 
 ### Explicitly NOT in MVP
@@ -64,11 +66,12 @@ Users can write OKR docs (O/KR/owner/timeline), but execution drifts:
 ### 3.1 Tables
 - Objectives
 - KeyResults
+- Plan
 - Actions
+- FocusBlocks
 - Evidence
-- WeeklyPlan
+- Scorecard
 - Ideas
-- TimeLog
 
 ### 3.2 Key Fields (minimal, can extend later)
 
@@ -89,9 +92,25 @@ Users can write OKR docs (O/KR/owner/timeline), but execution drifts:
 - Action_Title (text)
 - Status (single select: Backlog/Today/Doing/Done/Blocked)
 - Est_Minutes (number)
-- Due (datetime)
+- Plan (link to Plan, single)
 - KeyResult (link to KeyResults, single)
 - Guardrail_Flag (checkbox or single select; optional)
+
+**Plan**
+- Week_Start (date)
+- Week_End (date)
+- Deliverable (text)
+- Expected_Progress (number or %)
+- Risk (text)
+- KeyResult (link to KeyResults, single)
+
+**FocusBlocks**
+- Start (datetime)
+- End (datetime)
+- Minutes (number)
+- Goal (text)
+- Action (link to Actions, single)
+- Plan (link to Plan, single)
 
 **Evidence**
 - Evidence_Title (text)
@@ -100,13 +119,19 @@ Users can write OKR docs (O/KR/owner/timeline), but execution drifts:
 - Date (datetime)
 - KeyResult (link to KeyResults, single)
 - Action (link to Actions, optional)
+- FocusBlock (link to FocusBlocks, optional)
+- Quality (rating 1-5)
 
-**WeeklyPlan**
+**Scorecard**
 - Week_Start (date)
-- Deliverable (text)
-- Risk (text)
-- Time_Budget_Min (number; optional)
-- KeyResult(s) (link to KeyResults, multiple)
+- Week_End (date)
+- Total (number)
+- Result (number)
+- Process (number)
+- Evidence (number)
+- Drift_Penalty (number)
+- Deductions (text)
+- Actions (text)
 
 **Ideas**
 - Idea_Title (text)
@@ -114,13 +139,6 @@ Users can write OKR docs (O/KR/owner/timeline), but execution drifts:
 - Status (single select: Parking/Approved/Doing/Dropped)
 - KeyResult(s) (link to KeyResults, optional)
 - Notes (text; optional)
-
-**TimeLog**
-- Start (datetime)
-- Minutes (number)
-- Note (text)
-- Action (link to Actions, optional)
-- KeyResult (lookup via Action or direct link; optional)
 
 ---
 
@@ -135,15 +153,23 @@ Users can write OKR docs (O/KR/owner/timeline), but execution drifts:
   - attach Evidence link OR provide “failure reason” (simple text).
 - If no evidence for a KR for >= 2 days: drift warning.
 
-### 4.3 Guardrails
+### 4.3 Plan-first
+- Weekly Plan is the only valid source for Daily Pull.
+- Actions should be linked to Plan and KR.
+
+### 4.4 Scorecard
+- Weekly Scorecard required with deductions + correction actions.
+- Low scorecard weeks trigger drift warning.
+
+### 4.5 Guardrails
 - If user creates an Action with Est_Minutes > 30 and no KR link:
   - prompt to link KR OR move to Ideas(Parking) automatically (best effort in plugin).
 
-### 4.4 Drift Detection
+### 4.6 Drift Detection
 Minimum drift indicators:
 - days_since_last_evidence per KR.
 - unaligned_actions_count (Actions with KR empty).
-- Optional: time_on_unaligned via TimeLog.
+- low_scorecard_weeks (score below threshold).
 
 When drift triggers, show a 3-step correction playbook:
 1) Choose one KR weekly deliverable.
@@ -173,11 +199,14 @@ Notes:
 
 ### Phase 1: Plugin (Bitable Base extension)
 Deliver a plugin UI with:
-- Home: Top KRs + drift status + “Start correction”
-- Today: MIT list + buttons (Mark Done, Add Evidence)
+- Today: Plan selection + MIT list + Evidence entry
+- Plan: weekly plan list + progress status
 - Action Bank: quick filter + “Pull to Today”
-- Parking Lot: capture idea quickly
+- Focus Block: record deep work blocks
+- Evidence: add + list
+- Scorecard: weekly scoring + deductions
 - Drift: indicators + 1-click correction playbook
+- Parking Lot: capture idea quickly
 
 Implementation guidance:
 - Prefer simple deterministic logic over “AI”.
