@@ -600,7 +600,7 @@ function App() {
         [1, '漏斗效率分析结果', 'Dashboard', 2],
       ] as const
 
-      for (const [krIndex, title, evType, actionIndex] of evidenceData) {
+      for (const [, title, evType, actionIndex] of evidenceData) {
         const payload: Record<string, unknown> = {}
         if (evidenceFields.primaryFieldId) {
           payload[evidenceFields.primaryFieldId] = title
@@ -759,8 +759,6 @@ function App() {
 
       const { actionTitleId, statusId, estMinutesId, planStartId, planEndId, krTitleId } = getOkrPlanFieldIds(okrFields)
       const statusFieldName = resolveFieldNameByCandidates(okrFields, ['Action Status', 'Action_Status', 'Status'])
-      const statusFieldName = resolveFieldNameByCandidates(okrFields, ['Action Status', 'Action_Status', 'Status'])
-      setActionStatusAvailable(Boolean(statusId))
       setActionStatusAvailable(Boolean(statusId))
 
       const todayItems: Array<{
@@ -842,6 +840,7 @@ function App() {
       const okrRecords = await okrTable.getRecords({ pageSize: 5000 })
 
       const { actionTitleId, statusId, estMinutesId, planStartId, planEndId, krTitleId } = getOkrPlanFieldIds(okrFields)
+      const statusFieldName = resolveFieldNameByCandidates(okrFields, ['Action Status', 'Action_Status', 'Status'])
       const krOptions: Array<{ value: string; label: string }> = [{ value: 'all', label: '全部 KR' }]
       const okrList = asArray<{ recordId: string; fields: Record<string, unknown> }>(okrRecords.records)
       const krSet = new Set<string>()
