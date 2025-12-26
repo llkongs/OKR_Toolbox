@@ -8,41 +8,22 @@
 
 ## 1. 当前已完成（功能）
 
-### Tab: Demo 数据
-- 一键生成演示数据（O1 + 3 KR + Actions/Evidence/Ideas）
-- 使用通用组件 `OperationRunner` 显示确认弹窗 + 进度条 + 日志
+### Tab: 首页
+- 驾驶舱：周/月/季度得分 + 扣分原因
+- 今日任务：自动拉取计划已开始且未完成的 Action
+- 支持从 Backlog 手动加入 Today
+- 支持标记完成（强制证据或失败原因）
 
-### Tab: Home 总览
-- 展示 Top KRs（按偏航优先排序）
-- 展示偏航 KR 数量、未关联 Action 数量
-- 支持刷新 + 跳转 Drift（开始纠偏）
+### Tab: 诊断
+- 落后于计划进度的 Action 列表（按落后程度排序）
 
-### Tab: Today
-- 从 Backlog 拉取 1-2 个 MIT
-- 显示今日任务列表（KR、预计时长、计划日期）
-- 支持标记完成或移回 Backlog
-- 完成时强制填写证据或失败原因（自动创建 Evidence）
-
-### Tab: Action Bank
-- 仅展示 Backlog 动作
-- 支持按 KR 过滤
-- 支持一键“拉取到 Today”
-
-### Tab: Evidence
+### Tab: 证据
 - 新增证据（选择 Action、证据类型、标题、链接）
 - 最近证据列表
 
-### Tab: Drift
-- 偏航指标：连续无证据天数、未关联 Action 数
-- 偏航 KR 列表 + 纠偏 Playbook
-
-### Tab: Parking Lot
-- 新增想法（标题/分钟/关联 KR/备注）
-- Parking 列表展示
-
-### Tab: Guardrail
-- 新建 Action 护栏：>30 分钟且未关联 KR 会引导进入 Parking
-- 弹窗确认放入 Parking
+### Tab: 更多
+- Demo 数据：一键生成演示数据（OKRPlan + Evidence）
+- 诊断日志：复制/清空日志（用于排查插件异常）
 
 ## 2. 数据结构/脚本
 
@@ -55,6 +36,7 @@
 - `scripts/seed_plan_dates.sh`：写入计划日期
 - `scripts/add_planning_fields.sh`：为现有表补字段
 - `scripts/normalize_field_types.sh`：提示/尝试字段类型规范化
+- `scripts/add_okrplan_score_field.sh`：创建 OKRPlan 的 Score 公式字段
 
 ## 3. 字段优化建议
 - KeyResults.Progress -> 进度
@@ -74,25 +56,12 @@
 - 页面地址：`https://llkongs.github.io/OKR_Toolbox/`
 
 ## 6. 当前待办建议
-- 优化 Evidence 表单（支持快速回填 Action/KR）
-- Action Bank 支持按计划日期排序
-- Drift 增加“偏航阈值设置”
-- Today 支持快速“拉取 N 条 MIT”
-- 添加字段校验/表存在性检查提示
+- 评分逻辑与公式字段的参数可配置（阈值/权重）
+- 证据表单支持常用 Action 快捷选择
+- 增加字段缺失的可视提示（如 Action Status/Action Progress）
 
-## 7. 最新进展（2025-12-24）
-- 修复关联字段可能返回对象导致的报错（统一转数组处理）
-- 修复日志复制失败（提供手动复制弹窗）
-- 日志新增调试开关（默认开启，可关闭）
-- 版本号展示 + URL 自动带版本参数（用于强制刷新缓存）
-- PRD 增加“产品逻辑图（执行闭环）”Mermaid 流程图
-- 移除 Plan/WeeklyPlan/TimeLog 表，保留简化结构
-- Actions 使用 Plan_Start/Plan_End 作为规划日期，Plan_Date 等旧字段已清理
-- Today/Action Bank 按 Action 计划日期拉取，无需 Plan 选择
-- UsageGuide 同步新流程（Action 计划日期 + KR 截止日期）
-- 插件已切换为 OKRPlan 单表读取（Today/Action Bank/Evidence/Drift）
-- Today 顶部新增得分驾驶舱（周/月/季度），按行动进度与时间进度打分
-- Today 默认展示计划已开始且未完成的 Action
-- 新增 OKRPlan Score 公式字段脚本（`scripts/add_okrplan_score_field.sh`）
-- UI 精简为 Today + Evidence 关键闭环，并新增落后进度清单
-- UI 调整为三栏：首页（驾驶舱+今日任务）、诊断（落后进度）、证据；更多里包含 Demo/诊断日志
+## 7. 最新进展（2025-12-25）
+- 插件切换为 4 个 Tab：首页 / 诊断 / 证据 / 更多
+- 驾驶舱评分与落后清单已稳定工作（按 Action 时间进度 vs 实际进度）
+- Demo 数据与诊断日志恢复到“更多”
+- 主题回归浅色背景 + 黑色文字

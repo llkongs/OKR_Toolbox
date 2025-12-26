@@ -1,10 +1,11 @@
 # 使用说明（Bitable 模板）
 
-这是一套“执行不跑丢”的 OKR 闭环模板。推荐从小范围试用开始，先跑通最小闭环：OKR -> Action -> Focus Block -> Evidence -> Scorecard -> Drift -> 纠偏。
+这是一套“执行不跑丢”的 OKR 闭环模板。推荐从小范围试用开始，先跑通最小闭环：OKR -> Action -> Evidence -> 诊断 -> 纠偏。
 
 ## 0. 初始化
-1) 运行 `scripts/init_base.sh` 创建表结构（含 FocusBlocks / Scorecard）。
+1) 运行 `scripts/init_base.sh` 创建表结构（OKRPlan/Evidence/UsageGuide 等）。
 2) （可选）运行 `scripts/seed_mock_data.sh` 导入演示数据。
+3) （建议）运行 `scripts/add_okrplan_score_field.sh` 创建 Score 公式字段。
 
 ## 1. 录入 OKR（OKRPlan 单表）
 - 在 `OKRPlan` 表填写 Objectives / Key Results / Actions / Owner / Cycle。
@@ -25,41 +26,22 @@
 - 在 `OKRPlan` 新增公式字段 `Score`，用于对比“时间进度 vs 实际进度”。
 - 建议运行脚本 `scripts/add_okrplan_score_field.sh` 自动创建公式字段。
 
-## 4. 每日拉取（Today）
-- 每天检查 Action 计划日期，若计划日期落在当天，则拉入 Today 作为 MIT。
-- 把状态改为 Today，并在当天完成。
-- 每天建议只拉 1-2 条 MIT，保证产出证据。
+## 4. 首页（驾驶舱 + 今日任务）
+- 插件自动拉取“计划已开始且未完成”的 Action。
+- 支持从 Backlog 手动加入 Today。
+- 驾驶舱显示周/月/季度得分，并列出扣分原因（落后于时间进度的 Action）。
 
-## 5. Focus Block（深度时间块）
-- Today 的 Action 至少记录 1 个 Focus Block。
-- Focus Block 必须写目标产出，并尽量关联 Evidence。
-
-## 6. 证据优先（Evidence-first）
+## 5. 证据优先（Evidence-first）
 - 当 Action 完成时，必须新增 Evidence（链接/产物/结论）。
-- Evidence 必须关联到对应 KR（以及 Action / Focus Block）。
+- Evidence 必须关联到对应 KR（以及 Action）。
 - 证据质量用 1-5 档评分（存在性 / 初步结论 / 可复用 / 影响决策 / 明确下一步）。
 
-## 7. 周评分（Scorecard）
-- 在 `Scorecard` 中记录周评分（结果/过程/证据/偏航扣分）。
-- 必须写清扣分原因和纠偏动作。
-- 评分用于解释“低分原因”，并牵引下周 Action 规划。
+## 6. 诊断（落后进度）
+- “诊断”Tab 展示所有落后于时间进度的 Action。
+- 优先把落后项调回 Today，并补充 Evidence。
 
-## 8. 偏航检测与纠偏
-- 关注 3 个核心指标：
-  - 连续无 Evidence 天数
-  - 未关联 KR 的 Action 数量
-  - Scorecard 评分偏低（含扣分原因）
-- 触发偏航后执行 3 步纠偏：
-  1) 选 1 个 KR 的本周交付
-  2) 拉 1 个 30 分钟最小动作
-  3) 产出 1 个证据
-
-## 9. Parking Lot（探索预算）
-- 新任务超过 30 分钟且无法关联 KR，放入 `Ideas`。
-- 探索必须有预算且有产出（结论/模板/代码），否则降级。
-
-## 10. 最小闭环检查清单
+## 7. 最小闭环检查清单
 - 每个 KR 有截止日期。
 - 每周至少新增 2 条 Evidence。
 - Today 完成率 >= 70%。
-- Scorecard 有扣分原因 + 纠偏动作。
+- 诊断列表为“暂无落后项”。
