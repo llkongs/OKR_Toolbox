@@ -1,7 +1,8 @@
 :root {
-  font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+  font-family: "Alibaba PuHuiTi 2.0", "Source Han Sans SC", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  line-height: 1.6;
+  font-weight: 450;
+  font-size: 16px;
   color: #111827;
   background-color: #f6f8fb;
   font-synthesis: none;
