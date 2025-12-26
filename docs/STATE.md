@@ -95,3 +95,4 @@
 - Today 默认展示计划已开始且未完成的 Action
 - 新增 OKRPlan Score 公式字段脚本（`scripts/add_okrplan_score_field.sh`）
 - UI 精简为 Today + Evidence 关键闭环，并新增落后进度清单
+- UI 调整为三栏：首页（驾驶舱+今日任务）、诊断（落后进度）、证据；更多里包含 Demo/诊断日志

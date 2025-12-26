@@ -12,14 +12,16 @@ import {
   Select,
   Space,
   Tag,
+  Tabs,
   Typography,
   message,
 } from 'antd'
+import OperationRunner from './components/OperationRunner'
 import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
 
 const { Title, Text } = Typography
-const APP_VERSION = '0.1.10'
+const APP_VERSION = '0.1.11'
 
 type TableMeta = {
   id?: string
@@ -43,6 +45,14 @@ type TableApi = {
   getRecords: (params?: { pageSize?: number }) => Promise<{ records: Array<{ recordId: string; fields: Record<string, unknown> }> }>
   addRecord: (payload: { fields: Record<string, unknown> }) => Promise<string>
   setRecord?: (recordId: string, payload: { fields: Record<string, unknown> }) => Promise<unknown>
+}
+
+type LogEntry = {
+  id: string
+  ts: string
+  level: 'info' | 'error' | 'warn'
+  message: string
+  detail?: string
 }
 
 function resolveTableId(meta: TableMeta) {
@@ -240,6 +250,10 @@ function scoreColor(value: number) {
 
 function App() {
   const isBitable = Boolean((bitable as unknown as { base?: unknown }).base)
+  const [activeTab, setActiveTab] = useState('home')
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [copyModalOpen, setCopyModalOpen] = useState(false)
+  const [copyPayload, setCopyPayload] = useState('')
   const [todayLoading, setTodayLoading] = useState(false)
   const [todayError, setTodayError] = useState<string | null>(null)
   const [todayList, setTodayList] = useState<
@@ -299,8 +313,42 @@ function App() {
     }
   }, [])
 
+  const logEvent = (level: LogEntry['level'], messageText: string, detail?: string) => {
+    const entry: LogEntry = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      ts: new Date().toISOString(),
+      level,
+      message: messageText,
+      detail,
+    }
+    setLogs((prev) => [entry, ...prev].slice(0, 200))
+  }
+
+  const reportError = (context: string, err: unknown) => {
+    const detail = err instanceof Error ? err.stack || err.message : String(err)
+    logEvent('error', context, detail)
+  }
+
   const handleBoundaryError = (context: string, err: Error) => {
     console.error(`[${context}]`, err)
+    reportError(`渲染失败：${context}`, err)
+  }
+
+  const copyLogs = async () => {
+    const payload = JSON.stringify(logs, null, 2)
+    try {
+      await navigator.clipboard.writeText(payload)
+      message.success('日志已复制')
+    } catch {
+      setCopyPayload(payload)
+      setCopyModalOpen(true)
+      message.error('复制失败，请手动复制')
+    }
+  }
+
+  const clearLogs = () => {
+    setLogs([])
+    message.success('日志已清空')
   }
 
   const loadTodayData = async () => {
@@ -465,6 +513,7 @@ function App() {
     } catch (err) {
       console.error(err)
       setTodayError(`加载失败：${String(err)}`)
+      reportError('Today 数据加载失败', err)
     } finally {
       setTodayLoading(false)
     }
@@ -585,8 +634,85 @@ function App() {
     } catch (err) {
       console.error(err)
       setEvidenceError(`加载失败：${String(err)}`)
+      reportError('Evidence 加载失败', err)
     } finally {
       setEvidenceLoading(false)
+    }
+  }
+
+  const runSeed = async (ctx: { step: (line: string) => Promise<void> }) => {
+    const { step } = ctx
+    try {
+      const okrTable = await getTableByName('OKRPlan')
+      const evidenceTable = await getTableByName('Evidence')
+      const okrFields = buildFieldIndex(await okrTable.getFieldMetaList())
+      const evidenceFields = buildFieldIndex(await evidenceTable.getFieldMetaList())
+
+      const objectiveFieldId = resolveFieldIdByCandidates(okrFields, ['Objectives', 'Objective_Title', 'Objective'])
+      const krFieldId = resolveFieldIdByCandidates(okrFields, ['Key Results', 'KR_Title', 'KR'])
+      const actionFieldId = resolveFieldIdByCandidates(okrFields, ['Actions', 'Action_Title', 'Action'])
+      const statusFieldName = resolveFieldNameByCandidates(okrFields, ['Action Status', 'Action_Status', 'Status'])
+      const statusFieldId = statusFieldName ? resolveFieldId(okrFields.byName.get(statusFieldName)!) : ''
+      const minutesId = resolveFieldIdByCandidates(okrFields, ['Action Est Minutes', 'Action_Est_Minutes', 'Est_Minutes'])
+      const planStartId = resolveFieldIdByCandidates(okrFields, ['预期开始', 'Action_Plan_Start', 'Plan_Start'])
+      const planEndId = resolveFieldIdByCandidates(okrFields, ['预期结束', 'Action_Plan_End', 'Plan_End'])
+      const progressId = resolveFieldIdByCandidates(okrFields, ['Action Progress'])
+      await step('已读取 OKRPlan 字段')
+
+      const objectiveTitle = 'O1 - 优质UGC搜索价值验证'
+      const demoActions = [
+        ['完成价值验证对照实验结论', '完成优质UGC价值验证结论', 90, '2026-01-05', '2026-01-05'],
+        ['产出漏斗效率分析结论', '完成漏斗效率分析并明确提效空间', 90, '2026-01-12', '2026-01-12'],
+        ['验证搜索促供给上限', '验证搜索对优质UGC供给的撬动上限', 90, '2026-01-19', '2026-01-19'],
+      ] as const
+
+      const actionIds: string[] = []
+      for (const [actionTitle, krTitle, minutes, start, end] of demoActions) {
+        const payload: Record<string, unknown> = {}
+        if (okrFields.primaryFieldId) {
+          payload[okrFields.primaryFieldId] = actionTitle
+        }
+        if (objectiveFieldId) payload[objectiveFieldId] = objectiveTitle
+        if (krFieldId) payload[krFieldId] = krTitle
+        if (actionFieldId) payload[actionFieldId] = actionTitle
+        if (minutesId) payload[minutesId] = minutes
+        if (planStartId) payload[planStartId] = new Date(start).getTime()
+        if (planEndId) payload[planEndId] = new Date(end).getTime()
+        if (progressId) payload[progressId] = 0
+        if (statusFieldId) {
+          payload[statusFieldId] = selectValue(statusFieldName, 'Backlog', okrFields.optionMap)
+        }
+        actionIds.push(await okrTable.addRecord({ fields: payload }))
+        await step(`已创建 Action：${actionTitle}`)
+      }
+
+      const evidenceTitle = '价值验证实验对照分析'
+      const evidencePayload: Record<string, unknown> = {}
+      if (evidenceFields.primaryFieldId) {
+        evidencePayload[evidenceFields.primaryFieldId] = evidenceTitle
+      }
+      evidencePayload[resolveFieldId(evidenceFields.byName.get('Evidence_Title')!)] = evidenceTitle
+      evidencePayload[resolveFieldId(evidenceFields.byName.get('Evidence_Type')!)] = selectValue(
+        'Evidence_Type',
+        'Experiment',
+        evidenceFields.optionMap
+      )
+      evidencePayload[resolveFieldId(evidenceFields.byName.get('Date')!)] = Date.now()
+      evidencePayload[resolveFieldId(evidenceFields.byName.get('Link')!)] = 'https://example.com'
+      if (evidenceFields.byName.get('Action')) {
+        evidencePayload[resolveFieldId(evidenceFields.byName.get('Action')!)] = [actionIds[0]]
+      }
+      if (evidenceFields.byName.get('KeyResult')) {
+        evidencePayload[resolveFieldId(evidenceFields.byName.get('KeyResult')!)] = [actionIds[0]]
+      }
+      await evidenceTable.addRecord({ fields: evidencePayload })
+      await step('已创建 Evidence')
+
+      message.success('Demo 数据已生成')
+    } catch (err) {
+      console.error(err)
+      message.error(`生成失败：${String(err)}`)
+      reportError('Demo 数据生成失败', err)
     }
   }
 
@@ -596,21 +722,15 @@ function App() {
     void loadEvidenceData()
   }, [])
 
-  const todayContent = (
-    <ErrorBoundary name="Today" onError={handleBoundaryError}>
+
+  const homeContent = (
+    <ErrorBoundary name="首页" onError={handleBoundaryError}>
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         {todayError && <Alert type="error" showIcon message={todayError} />}
-        {evidenceError && <Alert type="error" showIcon message={evidenceError} />}
         <Card title="得分驾驶舱">
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
             <Space>
-              <Button
-                onClick={async () => {
-                  await loadTodayData()
-                  await loadEvidenceData()
-                }}
-                loading={todayLoading || evidenceLoading}
-              >
+              <Button onClick={loadTodayData} loading={todayLoading}>
                 刷新得分
               </Button>
             </Space>
@@ -658,17 +778,6 @@ function App() {
             </Space>
           </Space>
         </Card>
-        <Card title="落后于进度的 Action">
-          <List
-            dataSource={laggingActions}
-            locale={{ emptyText: '暂无落后项' }}
-            renderItem={(item) => (
-              <List.Item>
-                <Text>{item}</Text>
-              </List.Item>
-            )}
-          />
-        </Card>
         <Card title="今日计划">
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             {!actionStatusAvailable && (
@@ -679,14 +788,8 @@ function App() {
               />
             )}
             <Space wrap>
-              <Button
-                onClick={async () => {
-                  await loadTodayData()
-                  await loadEvidenceData()
-                }}
-                loading={todayLoading || evidenceLoading}
-              >
-                刷新全部
+              <Button onClick={loadTodayData} loading={todayLoading}>
+                刷新今日任务
               </Button>
             </Space>
             <Space wrap>
@@ -780,6 +883,37 @@ function App() {
             )}
           />
         </Card>
+      </Space>
+    </ErrorBoundary>
+  )
+
+  const diagnosticsContent = (
+    <ErrorBoundary name="诊断" onError={handleBoundaryError}>
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <Card title="落后于进度的 Action">
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Button onClick={loadTodayData} loading={todayLoading}>
+              刷新诊断
+            </Button>
+            <List
+              dataSource={laggingActions}
+              locale={{ emptyText: '暂无落后项' }}
+              renderItem={(item) => (
+                <List.Item>
+                  <Text>{item}</Text>
+                </List.Item>
+              )}
+            />
+          </Space>
+        </Card>
+      </Space>
+    </ErrorBoundary>
+  )
+
+  const evidenceContent = (
+    <ErrorBoundary name="证据" onError={handleBoundaryError}>
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        {evidenceError && <Alert type="error" showIcon message={evidenceError} />}
         <Card title="新增证据" loading={evidenceLoading}>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Select
@@ -852,6 +986,58 @@ function App() {
     </ErrorBoundary>
   )
 
+  const moreContent = (
+    <ErrorBoundary name="更多" onError={handleBoundaryError}>
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <OperationRunner
+          title="确认生成 Demo 数据"
+          description="用于快速生成一套 OKR 演示数据（OKRPlan + Evidence）。"
+          buttonLabel="生成 Demo OKR 数据"
+          runningLabel="正在生成..."
+          disabled={!isBitable}
+          totalSteps={4}
+          steps={['读取 OKRPlan 字段', '创建 3 条 Actions', '创建 1 条 Evidence']}
+          onRun={runSeed}
+        />
+        <Card title={`诊断日志（${logs.length}）`}>
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Space>
+              <Button onClick={copyLogs}>复制日志</Button>
+              <Button danger onClick={clearLogs}>
+                清空日志
+              </Button>
+            </Space>
+            <List
+              dataSource={logs}
+              locale={{ emptyText: '暂无日志' }}
+              renderItem={(item) => (
+                <List.Item>
+                  <Space direction="vertical">
+                    <Space wrap>
+                      <Tag color={item.level === 'error' ? 'red' : item.level === 'warn' ? 'orange' : 'blue'}>
+                        {item.level.toUpperCase()}
+                      </Tag>
+                      <Text>{item.ts}</Text>
+                    </Space>
+                    <Text>{item.message}</Text>
+                    {item.detail && <Text type="secondary">{item.detail}</Text>}
+                  </Space>
+                </List.Item>
+              )}
+            />
+          </Space>
+        </Card>
+      </Space>
+    </ErrorBoundary>
+  )
+
+  const tabs = [
+    { key: 'home', label: '首页', children: homeContent },
+    { key: 'diagnostics', label: '诊断', children: diagnosticsContent },
+    { key: 'evidence', label: '证据', children: evidenceContent },
+    { key: 'more', label: '更多', children: moreContent },
+  ]
+
   return (
     <div className="app">
       <div className="app-header">
@@ -863,7 +1049,7 @@ function App() {
         <Text type="secondary">今日拉取 + 证据沉淀</Text>
       </div>
       <Divider />
-      {todayContent}
+      <Tabs items={tabs} activeKey={activeTab} onChange={setActiveTab} />
       <Modal
         title="完成 Action 并添加证据"
         open={completeModalOpen}
@@ -923,6 +1109,16 @@ function App() {
             onChange={(e) => setCompleteFailureReason(e.target.value)}
           />
         </Space>
+      </Modal>
+      <Modal
+        title="手动复制日志"
+        open={copyModalOpen}
+        onCancel={() => setCopyModalOpen(false)}
+        onOk={() => setCopyModalOpen(false)}
+        okText="关闭"
+        cancelButtonProps={{ style: { display: 'none' } }}
+      >
+        <Input.TextArea rows={8} value={copyPayload} readOnly />
       </Modal>
     </div>
   )
