@@ -2,19 +2,32 @@
   font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #1f1f1f;
-  background-color: #f5f5f5;
+  color: #111827;
+  background-color: #f6f8fb;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  --bd-red: #f04438;
+  --bd-blue: #2f54eb;
+  --bd-cyan: #1fb6ff;
+  --bd-ink: #111827;
+  --bd-muted: #667085;
+  --bd-bg: #f6f8fb;
+  --bd-card: rgba(255, 255, 255, 0.92);
+  --bd-border: rgba(148, 163, 184, 0.24);
+  --bd-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #f5f5f5;
+  background:
+    radial-gradient(circle at 10% 20%, rgba(31, 182, 255, 0.18), transparent 45%),
+    radial-gradient(circle at 80% 0%, rgba(240, 68, 56, 0.16), transparent 40%),
+    linear-gradient(135deg, #f6f8fb 0%, #eef2f8 55%, #f8fafc 100%);
 }
 
 #root {
