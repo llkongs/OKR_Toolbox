@@ -19,7 +19,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
 
 const { Title, Text } = Typography
-const APP_VERSION = '0.1.9'
+const APP_VERSION = '0.1.10'
 
 type TableMeta = {
   id?: string
@@ -603,6 +603,17 @@ function App() {
         {evidenceError && <Alert type="error" showIcon message={evidenceError} />}
         <Card title="得分驾驶舱">
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <Space>
+              <Button
+                onClick={async () => {
+                  await loadTodayData()
+                  await loadEvidenceData()
+                }}
+                loading={todayLoading || evidenceLoading}
+              >
+                刷新得分
+              </Button>
+            </Space>
             <Space wrap size={24}>
               <Space direction="vertical" align="center">
                 <AntProgress
